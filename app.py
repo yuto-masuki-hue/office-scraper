@@ -119,7 +119,7 @@ with col1:
     get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
     get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
     st.markdown("---")
-    st.markdown("※ 賢い上位モデル(1.5 Pro)に換装したため、安全のため4.5秒に1件のペースで精査します。")
+    st.markdown("※ 1.5 Proの無料制限を回避するため、4.5秒に1件のペースで安全に回します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -145,7 +145,6 @@ if uploaded_file is not None:
         if st.button("▶ EXECUTE AI EXTRACTION"):
             
             genai.configure(api_key=gemini_key)
-            # ★【大改修】最も推論が賢く執念深い上位モデル「gemini-1.5-pro」へ変更！
             model = genai.GenerativeModel("gemini-1.5-pro")
             
             chrome_options = Options()
@@ -222,43 +221,35 @@ if uploaded_file is not None:
                         try:
                             try:
                                 driver.get(url_found)
-                                time.sleep(1.5) # 読み込み待ちを1.5秒に微増
+                                time.sleep(2.0) # JSの遅延読み込みを考慮して2秒待機
                             except:
                                 pass
                             
-                            # ★【大改修】表面上の文字だけでなく、裏側のHTMLソースコード(outerHTML)を丸ごと引き抜く
-                            raw_html = driver.execute_script("return document.documentElement.outerHTML;")
-                            
-                            # 不要なスクリプトコードやスタイル定義、メタタグなどを正規表現で完全に削ぎ落として軽量化
-                            clean_source = re.sub(r'<script[\s\S]*?<\/script>', ' ', raw_html)
-                            clean_source = re.sub(r'<style[\s\S]*?<\/style>', ' ', clean_source)
-                            clean_source = re.sub(r'<[^>]+>', ' ', clean_source) # 残ったHTMLタグを除去
-                            clean_text = re.sub(r'\s+', ' ', clean_source).strip() # 空白を1行に圧縮
-                            
-                            # AIに読ませる文字制限を少し拡張（上位4万文字）
-                            truncated_text = clean_text[:40000]
+                            # ★【修正】余計なHTML置換をやめ、Selenium標準の最も安全な文字抽出(innerText)に原点回帰
+                            clean_text = driver.find_element(By.TAG_NAME, "body").text
+                            truncated_text = clean_text[:25000]
                             
                             prompt = f"""
-                            あなたはプロの超精密データ抽出AIです。提供されたウェブサイトのテキスト情報を隅々まで読み解き、この事務所や組織の「代表者名（個人の氏名のみ）」と「電話番号（固定電話や代表電話など）」を執念深く見つけ出してください。
+                            以下のウェブサイトから、この組織の「代表者名（個人の氏名）」と「代表電話番号」を特定して、指定のJSONフォーマットで出力してください。
 
-                            【超厳格ルール】
-                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
-                            ※「総合事務所」や「エルム会計」のような法人名・組織名は絶対に代表者名として抽出せず、人間の名前のみを抜き出してください。
-                            2. 電話番号は日本の正しい電話番号（例: 011-727-5303, 0120-951-761）を1つ特定してください。郵便番号やシリアルコードは除外してください。
-                            3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
+                            【抽出条件】
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップ個人の氏名（漢字）を特定してください。
+                            ※重要：会社名、法人名、メニューの単語（例: 総合事務所、税理士法人、代表挨拶、経営理念など）は、絶対に名前に含めないでください。人間の名前がどうしてもわからない場合は「見つかりませんでした」としてください。
+                            2. 電話番号は日本の正しい形式（例: 011-727-5303, 0120-951-761）を1つだけ特定してください。
 
-                            【対象Webサイトテキスト】
+                            【対象テキスト】
                             {truncated_text}
 
                             【出力フォーマット】
-                            必ず以下の、キー名が半角英数字のJSON形式のみで返答してください。余計な説明文やマークダウン（```json など）は一切含めず、生データとしてパースできるようにしてください。
-                            {{"representative": "ここに代表者の氏名", "tel": "ここに電話番号"}}
+                            必ず、以下のJSON形式のみで返答してください。余計な説明文や、```json などのバッククォート装飾は一切含めないでください。
+                            {{"representative": "ここに代表者名", "tel": "ここに電話番号"}}
                             """
                             
                             response = model.generate_content(prompt)
                             ai_output = response.text.strip()
                             
-                            if ai_output.startswith("```"):
+                            # 万が一マークダウン装飾が含まれた場合のガード
+                            if "```" in ai_output:
                                 ai_output = ai_output.replace("```json", "").replace("```", "").strip()
                             
                             data_json = json.loads(ai_output)
@@ -276,7 +267,7 @@ if uploaded_file is not None:
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    time.sleep(4.5) # 1.5 Proの無料枠上限を考慮した安全マージン
+                    time.sleep(4.5)
                 
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
