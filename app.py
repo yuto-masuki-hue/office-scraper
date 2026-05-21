@@ -12,32 +12,28 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 # =====================================================================
-# 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー調整 (CSSハック)
+# 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー (CSS)
 # =====================================================================
 st.set_page_config(page_title="SYSTEM: AI SCOPER v3.0", layout="wide")
 
 cyber_css = """
 <style>
-    /* 全体の背景とテキストカラー */
     .stApp {
         background-color: #0d0f12 !important;
         color: #00ffcc !important;
         font-family: 'Courier New', Courier, monospace !important;
     }
-    
-    /* ───【修正：タイトルエリアの固定位置と高さを最適化】─── */
     .sticky-header {
         position: fixed;
-        top: 0; /* 画面の一番上ぴったりに配置 */
+        top: 0;
         left: 0;
         width: 100%;
-        background-color: #0d0f12 !important; /* 背後を隠すため完全な黒背景 */
-        z-index: 999999; /* 他のどの要素よりも前面に出す */
-        padding: 50px 50px 15px 50px; /* ★上部パディングを増やして文字を下に押し下げる */
+        background-color: #0d0f12 !important;
+        z-index: 999999;
+        padding: 50px 50px 15px 50px;
         border-bottom: 2px solid #00ffcc;
         box-shadow: 0 5px 20px rgba(0, 255, 204, 0.2);
     }
-    /* タイトル文字のネオン装飾 */
     .sticky-header h1 {
         color: #ff0055 !important;
         text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
@@ -46,29 +42,22 @@ cyber_css = """
         font-weight: bold !important;
         font-size: 2.2rem !important;
     }
-    /* 下のメインコンテンツ（APIキー入力等）がヘッダーの裏に隠れないよう、上部の余白をさらに拡大 */
     .stMainBlockContainer {
-        padding-top: 210px !important; /* ★ここをさらに広げてパーツ全体を下げました */
+        padding-top: 210px !important;
     }
-    /* ─────────────────────────────────────────────────── */
-
-    /* サブテキスト・汎用ラベル文字をくっきり白化 */
     .stMarkdown p, label, .stSlider p {
         color: #e2e8f0 !important;
     }
-    /* API KEY入力欄のラベル文字色 */
     div[data-testid="stTextInput"] label p {
         color: #00ffcc !important;
         font-weight: bold !important;
         text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
     }
-    /* API KEYの入力ボックス本体 */
     div[data-testid="stTextInput"] input {
         background-color: #1a1f26 !important;
         color: #ffffff !important;
         border: 1px solid #00ffcc !important;
     }
-    /* チェックボックスカードの完全固定 */
     div[data-testid="stCheckbox"] {
         background-color: #1a1f26;
         padding: 8px 15px;
@@ -81,7 +70,6 @@ cyber_css = """
         color: #ffffff !important;
         font-weight: bold !important;
     }
-    /* ボタンをいかつくネオン化 */
     div.stButton > button:first-child {
         background-color: #ff0055 !important;
         color: #ffffff !important;
@@ -99,7 +87,6 @@ cyber_css = """
         box-shadow: 0 0 20px #00ffcc;
         border: 2px solid #0d0f12 !important;
     }
-    /* データフレームのサイバー化 */
     .stDataFrame {
         border: 1px solid #ff0055 !important;
         box-shadow: 0 0 10px rgba(255, 0, 85, 0.15);
@@ -109,12 +96,12 @@ cyber_css = """
 st.html(cyber_css)
 
 # =====================================================================
-# 1. 固定ヘッダーの配置 (HTMLで直書きして最上部に固定)
+# 1. 固定ヘッダーの配置
 # =====================================================================
 header_html = """
 <div class="sticky-header">
     <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v3.0</h1>
-    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)</p>
+    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 1.5 Pro)</p>
 </div>
 """
 st.html(header_html)
@@ -132,7 +119,7 @@ with col1:
     get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
     get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
     st.markdown("---")
-    st.markdown("※ 無料APIキーの制限を回避するため、4秒に1件のペースで安全に推論を回します。")
+    st.markdown("※ 賢い上位モデル(1.5 Pro)に換装したため、安全のため4.5秒に1件のペースで精査します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -158,7 +145,8 @@ if uploaded_file is not None:
         if st.button("▶ EXECUTE AI EXTRACTION"):
             
             genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-2.5-flash")
+            # ★【大改修】最も推論が賢く執念深い上位モデル「gemini-1.5-pro」へ変更！
+            model = genai.GenerativeModel("gemini-1.5-pro")
             
             chrome_options = Options()
             chrome_options.add_argument('--headless')
@@ -229,26 +217,37 @@ if uploaded_file is not None:
                     except:
                         pass
                     
+                    # 2. HPからAI最高精度スキャン
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
                             try:
                                 driver.get(url_found)
-                                time.sleep(1.2)
+                                time.sleep(1.5) # 読み込み待ちを1.5秒に微増
                             except:
                                 pass
                             
-                            raw_html = driver.execute_script("return document.body.innerText;")
-                            truncated_text = raw_html[:25000]
+                            # ★【大改修】表面上の文字だけでなく、裏側のHTMLソースコード(outerHTML)を丸ごと引き抜く
+                            raw_html = driver.execute_script("return document.documentElement.outerHTML;")
+                            
+                            # 不要なスクリプトコードやスタイル定義、メタタグなどを正規表現で完全に削ぎ落として軽量化
+                            clean_source = re.sub(r'<script[\s\S]*?<\/script>', ' ', raw_html)
+                            clean_source = re.sub(r'<style[\s\S]*?<\/style>', ' ', clean_source)
+                            clean_source = re.sub(r'<[^>]+>', ' ', clean_source) # 残ったHTMLタグを除去
+                            clean_text = re.sub(r'\s+', ' ', clean_source).strip() # 空白を1行に圧縮
+                            
+                            # AIに読ませる文字制限を少し拡張（上位4万文字）
+                            truncated_text = clean_text[:40000]
                             
                             prompt = f"""
-                            あなたは優秀なデータ抽出AIです。提供されたウェブサイトのテキスト情報を読み、この事務所や組織の「代表者名（個人の氏名のみ）」と「電話番号（固定電話や代表電話など）」を注意深く推論して見つけ出してください。
+                            あなたはプロの超精密データ抽出AIです。提供されたウェブサイトのテキスト情報を隅々まで読み解き、この事務所や組織の「代表者名（個人の氏名のみ）」と「電話番号（固定電話や代表電話など）」を執念深く見つけ出してください。
 
-                            【抽出ルール】
-                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」などの役職がついている人物の「氏名（漢字）」を特定してください。「総合事務所」や「税理士法人」のような組織名は絶対に名 outreach に含めず、個人の名前のみを抽出してください。
-                            2. 電話番号は日本の正しい電話番号（例: 03-XXXX-XXXX, 0120-XXX-XXX）を1つ特定してください。郵便番号やシリアルコードは絶対に除外してください。
-                            3. 情報が見つからない場合は、必ず「見つかりませんでした」としてください。
+                            【超厳格ルール】
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
+                            ※「総合事務所」や「エルム会計」のような法人名・組織名は絶対に代表者名として抽出せず、人間の名前のみを抜き出してください。
+                            2. 電話番号は日本の正しい電話番号（例: 011-727-5303, 0120-951-761）を1つ特定してください。郵便番号やシリアルコードは除外してください。
+                            3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
 
-                            【対象テキスト】
+                            【対象Webサイトテキスト】
                             {truncated_text}
 
                             【出力フォーマット】
@@ -277,7 +276,7 @@ if uploaded_file is not None:
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    time.sleep(4.0)
+                    time.sleep(4.5) # 1.5 Proの無料枠上限を考慮した安全マージン
                 
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
