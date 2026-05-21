@@ -1,9 +1,14 @@
-import json
 import time
 import urllib.parse
 import google.generativeai as genai
 import pandas as pd
 import streamlit as st
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 # =====================================================================
 # 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー (CSS)
@@ -95,7 +100,7 @@ st.html(cyber_css)
 header_html = """
 <div class="sticky-header">
     <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v4.0</h1>
-    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: GOOGLE LIVE-SEARCH GROUNDING EXTRACTOR (Gemini 1.5 Pro)</p>
+    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: HYBRID AI SCRAPER ENGINE (Gemini 1.5 Pro)</p>
 </div>
 """
 st.html(header_html)
@@ -110,10 +115,10 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象)")
     get_hp = st.checkbox("🔗 HPリンク (URL)", value=True)
-    get_rep = st.checkbox("👤 代表者名 (AI ライブ検索)", value=True)
-    get_tel = st.checkbox("📞 TEL番号 (AI ライブ検索)", value=True)
+    get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
+    get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
     st.markdown("---")
-    st.markdown("※ Google公式検索ドッキングモード。パースエラーを100%回避する安全設計。")
+    st.markdown("※ 最上位モデル(1.5 Pro)をハイブリッド稼働。安全のため4.5秒に1件のペースで精査します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -139,23 +144,25 @@ if uploaded_file is not None:
         if st.button("▶ EXECUTE AI EXTRACTION"):
             
             genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel(model_name="gemini-1.5-pro")
             
-            # ★【大改修：エラー根絶】
-            # 内部モジュールの依存関係エラー（AttributeError）を100%回避するため、
-            # 最新ドキュメント推奨のピュアなPython辞書形式でGoogle検索機能を安全にバインドします。
-            google_search_tool = {
-                "google_search_retrieval": {
-                    "dynamic_retrieval_config": {
-                        "mode": "MODE_DYNAMIC",
-                        "dynamic_threshold": 0.0  # 全件で必ず最新のGoogle検索を行う指定
-                    }
-                }
-            }
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
             
-            model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
-                tools=[google_search_tool]  # エラーなく、確実にリアルタイム検索機能がONになります
-            )
+            chrome_options.binary_location = "/usr/bin/chromium"
+            service = Service(executable_path="/usr/bin/chromedriver")
+            
+            try:
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                driver.set_page_load_timeout(10)
+                driver.implicitly_wait(3)
+            except Exception as e:
+                st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. CRITICAL_ERROR: {e}")
+                st.stop()
             
             hp_links = []
             representatives = []
@@ -170,63 +177,117 @@ if uploaded_file is not None:
                     office_name = row.iloc[0]
                     address = row.iloc[1]
                     
-                    status_text.markdown(f"`[AI LIVE SEARCHING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
+                    status_text.markdown(f"`[PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
+                    
+                    query = f"{office_name} {address}"
+                    search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
                     
                     url_found = "見つかりませんでした"
                     rep_found = "見つかりませんでした"
                     tel_found = "見つかりませんでした"
                     
+                    # 1. 検索エンジンから本物の自社HPのみをスカウト（ポータルサイトを強力に弾く）
                     try:
-                        # AIへのプロンプト：JSON縛りを完全に無くし、普通のテキストで箇条書き出力させる
-                        prompt = f"""
-                        ターゲット組織: {office_name}
-                        住所・所在地: {address}
-
-                        上記ターゲットの「公式ホームページURL」「代表者の氏名」「電話番号」を、あなたの持つ【Google検索機能（ツール）】を駆使してWeb上から探してください。ポータルサイトではなく、可能な限り公式の個別ホームページの情報を最優先にしてください。
-
-                        【抽出の厳格ルール】
-                        1. 代表者名は「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」などの役職がついている人物の「個人の氏名（漢字）」のみを特定してください（組織名は不可）。
-                        2. 電話番号は日本の正しい形式（例: 011-727-5303）のみを特定してください。
-                        3. 情報がどうしても見つからない場合は「見つかりませんでした」としてください。
-
-                        【出力フォーマット】
-                        余計な前置きや説明は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
-                        URL: (ここに検出したURL)
-                        NAME: (ここに代表者氏名)
-                        TEL: (ここに電話番号)
-                        """
+                        driver.get(search_url)
+                        WebDriverWait(driver, 4).until(
+                            EC.presence_of_element_located((By.CLASS_NAME, "result"))
+                        )
+                        search_results = driver.find_elements(By.CLASS_NAME, "result")
                         
-                        response = model.generate_content(prompt)
-                        ai_output = response.text.strip()
-                        
-                        # テキストを1行ずつ安全にスキャンして結果を割り当て
-                        for line in ai_output.splitlines():
-                            line_str = line.strip()
-                            if line_str.startswith("URL:"):
-                                url_found = line_str.replace("URL:", "").strip()
-                            elif line_str.startswith("NAME:"):
-                                rep_found = line_str.replace("NAME:", "").strip()
-                            elif line_str.startswith("TEL:"):
-                                tel_found = line_str.replace("TEL:", "").strip()
+                        for result in search_results:
+                            class_attr = result.get_attribute("class")
+                            if "ad" in class_attr or "badge" in class_attr:
+                                continue
+                            try:
+                                link_element = result.find_element(By.CLASS_NAME, "result__a")
+                                raw_url = link_element.get_attribute("href")
                                 
-                    except Exception as e:
+                                # DuckDuckGoのプレキシURLをパース
+                                clean_url = raw_url
+                                if "uddg=" in raw_url:
+                                    from urllib.parse import parse_qs, urlparse
+                                    parsed = urlparse(raw_url)
+                                    queries = parse_qs(parsed.query)
+                                    if 'uddg' in queries:
+                                        clean_url = queries['uddg'][0]
+                                
+                                if clean_url.startswith("http"):
+                                    # ★【重要：紹介ポータルサイト排除フィルター】
+                                    # ゴミデータを掴まないよう、主要なポータルサイトやマップドメインを完全に無視してスキップ
+                                    if any(p in clean_url for p in [
+                                        "kaikei-home.com", "ezeirisi.jp", "map.yahoo.co.jp", "zeiri4.com", 
+                                        "google.com", "youtube.com", "twitter.com", "facebook.com", "instagram.com"
+                                    ]):
+                                        continue
+                                        
+                                    url_found = clean_url
+                                    break # 有効な公式サイトを見つけたら即ループ脱出
+                            except:
+                                pass
+                    except:
                         pass
                     
-                    # ユーザーの選択に応じて結果を格納
+                    # 2. 本物のHPに突入して安全にテキストを引っこ抜き、AIで精密推論
+                    if url_found != "見つかりませんでした" and (get_rep or get_tel):
+                        try:
+                            try:
+                                driver.get(url_found)
+                                time.sleep(1.5)
+                            except:
+                                pass
+                            
+                            # 表面上の文字データを極めて安全に取得（型崩れなし）
+                            clean_text = driver.find_element(By.TAG_NAME, "body").text
+                            truncated_text = clean_text[:25000]
+                            
+                            # プロンプト：パースバグを100%回避する箇条書きテキスト指定
+                            prompt = f"""
+                            以下のウェブサイトのテキスト情報を読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して、指定の形式で出力してください。
+
+                            【超厳格ルール】
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
+                            ※「総合事務所」や「税理士法人」のような法人名・組織名・メニュー単語は、絶対に代表者名として出力せず、人間の名前のみを抜き出してください。
+                            2. 電話番号は日本の正しい電話番号（例: 011-727-5303）を1つ特定してください。
+                            3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
+
+                            【対象Webサイトテキスト】
+                            {truncated_text}
+
+                            【出力フォーマット】
+                            余計な前置きや説明は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
+                            URL: (ここに検出したURL)
+                            NAME: (ここに代表者氏名)
+                            TEL: (ここに電話番号)
+                            """
+                            
+                            response = model.generate_content(prompt)
+                            ai_output = response.text.strip()
+                            
+                            # 返ってきたテキストを1行ずつ安全に回収（JSONバグなし）
+                            for line in ai_output.splitlines():
+                                line_str = line.strip()
+                                if line_str.startswith("NAME:"):
+                                    rep_found = line_str.replace("NAME:", "").strip()
+                                elif line_str.startswith("TEL:"):
+                                    tel_found = line_str.replace("TEL:", "").strip()
+                                
+                        except Exception as e:
+                            pass
+                    
+                    # リストに格納
                     if get_hp: hp_links.append(url_found)
                     if get_rep: representatives.append(rep_found)
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    # 無料枠APIの制限を超えないよう、4.5秒の安全ウエイト
                     time.sleep(4.5)
                 
-                # 結果を結合
+                # 反映
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
                 if get_tel: df['TEL番号'] = tel_numbers
                 
-                status_text.markdown("### 🟢 EXTRACTION COMPLETE. OUTPUT GENERATED VIA AI LIVE SEARCH.")
+                status_text.markdown("### 🟢 EXTRACTION COMPLETE. OUTPUT GENERATED BY HYBRID ENGINE.")
                 st.dataframe(df)
                 
                 csv_string = df.to_csv(index=False, encoding='utf-8-sig')
@@ -239,5 +300,5 @@ if uploaded_file is not None:
                     mime="text/csv"
                 )
                 
-            except Exception as outer_e:
-                st.error(f"SYSTEM_ERROR: {outer_e}")
+            finally:
+                driver.quit()
