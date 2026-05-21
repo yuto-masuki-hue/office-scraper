@@ -119,7 +119,7 @@ with col1:
     get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
     get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
     st.markdown("---")
-    st.markdown("※ 1.5 Proの無料制限を回避するため、4.5秒に1件のペースで安全に回します。")
+    st.markdown("※ 上位モデル(1.5 Pro)に換装。安全のため4.5秒に1件のペースで精査します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -216,40 +216,41 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    # 2. HPからAI最高精度スキャン
+                    # 2. HPからAIスキャン
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
                             try:
                                 driver.get(url_found)
-                                time.sleep(2.0) # JSの遅延読み込みを考慮して2秒待機
+                                time.sleep(1.5)
                             except:
                                 pass
                             
-                            # ★【修正】余計なHTML置換をやめ、Selenium標準の最も安全な文字抽出(innerText)に原点回帰
-                            clean_text = driver.find_element(By.TAG_NAME, "body").text
+                            # ★【大修正】バグの原因だった正規表現置換をすべて廃止。
+                            # Selenium標準の最も安全な文字抽出(innerText)のみを取得。これでテキスト破壊を防ぎます。
+                            clean_text = driver.execute_script("return document.body.innerText;")
                             truncated_text = clean_text[:25000]
                             
                             prompt = f"""
-                            以下のウェブサイトから、この組織の「代表者名（個人の氏名）」と「代表電話番号」を特定して、指定のJSONフォーマットで出力してください。
+                            以下のウェブサイトのテキスト情報を読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して、指定のJSONフォーマットで出力してください。
 
-                            【抽出条件】
-                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップ個人の氏名（漢字）を特定してください。
-                            ※重要：会社名、法人名、メニューの単語（例: 総合事務所、税理士法人、代表挨拶、経営理念など）は、絶対に名前に含めないでください。人間の名前がどうしてもわからない場合は「見つかりませんでした」としてください。
-                            2. 電話番号は日本の正しい形式（例: 011-727-5303, 0120-951-761）を1つだけ特定してください。
+                            【超厳格ルール】
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
+                            ※「総合事務所」や「税理士法人」のような法人名・組織名・メニュー単語は、絶対に代表者名として抽出せず、人間の名前のみを抜き出してください。
+                            2. 電話番号は日本の正しい電話番号（例: 011-727-5303）を1つ特定してください。
+                            3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
 
-                            【対象テキスト】
+                            【対象Webサイトテキスト】
                             {truncated_text}
 
                             【出力フォーマット】
-                            必ず、以下のJSON形式のみで返答してください。余計な説明文や、```json などのバッククォート装飾は一切含めないでください。
-                            {{"representative": "ここに代表者名", "tel": "ここに電話番号"}}
+                            必ず以下の、キー名が半角英数字のJSON形式のみで返答してください。余計な説明文やマークダウン（```json など）は一切含めず、生データとしてパースできるようにしてください。
+                            {{"representative": "ここに代表者の氏名", "tel": "ここに電話番号"}}
                             """
                             
                             response = model.generate_content(prompt)
                             ai_output = response.text.strip()
                             
-                            # 万が一マークダウン装飾が含まれた場合のガード
-                            if "```" in ai_output:
+                            if ai_output.startswith("```"):
                                 ai_output = ai_output.replace("```json", "").replace("```", "").strip()
                             
                             data_json = json.loads(ai_output)
