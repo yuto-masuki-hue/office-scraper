@@ -11,7 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 # =====================================================================
-# 0. いかついサイバーパンク・ダークUIのカスタム設定 (CSS注入)
+# 0. いかついサイバーパンク・ダークUIのカスタム設定 (安全なHTML注入)
 # =====================================================================
 st.set_page_config(page_title="SYSTEM: INFO SCOPER v2.0", layout="wide")
 
@@ -69,7 +69,8 @@ cyber_css = """
     }
 </style>
 """
-st.markdown(cyber_css, unsafe_html=True)
+# エラーが出る st.markdown をやめ、最新の st.html を使うことで安全にCSSを適応
+st.html(cyber_css)
 
 # =====================================================================
 # 1. UIパーツ配置
@@ -77,7 +78,6 @@ st.markdown(cyber_css, unsafe_html=True)
 st.title("⚡ INFO EXTRACTOR // CORE_SYSTEM v2.0")
 st.write("TARGET SYSTEM: DATA INGESTION & INTELLIGENCE EXTRACTOR")
 
-# 2列に分割して、左に設定、右にファイルアップローダーを配置
 col1, col2 = st.columns([1, 2])
 
 with col1:
@@ -105,14 +105,11 @@ if uploaded_file is not None:
     st.success("🤖 TARGET DATA LOADED SUCCESSFULLY.")
     st.dataframe(df.head(3))
 
-    # 何も選択されていない場合のガード
     if not (get_hp or get_rep or get_tel):
         st.warning("⚠️ エラー: 少なくとも1つの抽出対象を選択してください。")
     else:
-        # 実行ボタン
         if st.button("▶ EXECUTE SYSTEM EXTRACTION"):
             
-            # ブラウザ起動設定
             chrome_options = Options()
             chrome_options.add_argument('--headless')
             chrome_options.add_argument('--no-sandbox')
@@ -129,7 +126,6 @@ if uploaded_file is not None:
                 st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. CRITICAL_ERROR: {e}")
                 st.stop()
             
-            # 選択されたものだけ初期化
             hp_links = [] if get_hp else None
             representatives = [] if get_rep else None
             tel_numbers = [] if get_tel else None
@@ -145,7 +141,6 @@ if uploaded_file is not None:
                     
                     status_text.markdown(f"`[PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
                     
-                    # 検索ワードの動的最適化
                     keywords = []
                     if get_rep: keywords.append("代表")
                     if get_tel: keywords.append("TEL")
@@ -168,9 +163,8 @@ if uploaded_file is not None:
                         for result in search_results:
                             class_attr = result.get_attribute("class")
                             if "ad" in class_attr or "badge" in class_attr:
-                                continue  # 広告スキップ
+                                continue
                             
-                            # URL抽出（有効時のみ）
                             if get_hp and url_found == "N/A":
                                 try:
                                     link_element = result.find_element(By.CLASS_NAME, "result__a")
@@ -186,18 +180,15 @@ if uploaded_file is not None:
                                 except:
                                     pass
                             
-                            # テキスト解析抽出
                             if get_tel or get_rep:
                                 try:
                                     snippet_text = result.find_element(By.CLASS_NAME, "result__snippet").text
                                     
-                                    # 電話番号抽出（有効時のみ）
                                     if get_tel and tel_found == "N/A":
                                         tel_match = re.search(r'\(?\d{2,5}\)?[-ー\s]?\d{1,4}[-ー\s]?\d{3,4}', snippet_text)
                                         if tel_match:
                                             tel_found = tel_match.group()
                                     
-                                    # 代表者名抽出（有効時のみ）
                                     if get_rep and rep_found == "N/A":
                                         rep_match = re.search(r'(?:代表|所長|代表社員|理事長|院長)(?:：|:\s*|明氏)?([一-龠]{2,4})', snippet_text)
                                         if rep_match:
@@ -215,7 +206,6 @@ if uploaded_file is not None:
                     progress_bar.progress((index + 1) / total_rows)
                     time.sleep(1.2)
                 
-                # チェックが入っている列だけを元のデータに結合
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
                 if get_tel: df['TEL番号'] = tel_numbers
@@ -223,7 +213,6 @@ if uploaded_file is not None:
                 status_text.markdown("### 🟢 EXTRACTION COMPLETE. OUTPUT GENERATED.")
                 st.dataframe(df)
                 
-                # ダウンロード（文字化け完全防止バイナリ）
                 csv_string = df.to_csv(index=False, encoding='utf-8-sig')
                 csv_bytes = csv_string.encode('utf-8-sig')
                 
