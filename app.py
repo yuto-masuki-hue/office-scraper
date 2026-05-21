@@ -100,7 +100,7 @@ st.html(cyber_css)
 header_html = """
 <div class="sticky-header">
     <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v4.0</h1>
-    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: HYBRID AI SCRAPER ENGINE (Gemini 1.5 Pro)</p>
+    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: HYBRID DEEP AI SCRAPER ENGINE (Gemini 1.5 Pro)</p>
 </div>
 """
 st.html(header_html)
@@ -115,10 +115,10 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象)")
     get_hp = st.checkbox("🔗 HPリンク (URL)", value=True)
-    get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
-    get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
+    get_rep = st.checkbox("👤 代表者名 (AI 階層巡回)", value=True)
+    get_tel = st.checkbox("📞 TEL番号 (AI 階層巡回)", value=True)
     st.markdown("---")
-    st.markdown("※ 最上位モデル(1.5 Pro)をハイブリッド稼働。安全のため4.5秒に1件のペースで精査します。")
+    st.markdown("※ 自社サイト内の「概要・挨拶」下層ページも自動巡回してAIに一括連携します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -186,7 +186,7 @@ if uploaded_file is not None:
                     rep_found = "見つかりませんでした"
                     tel_found = "見つかりませんでした"
                     
-                    # 1. 検索エンジンから本物の自社HPのみをスカウト（ポータルサイトを強力に弾く）
+                    # 1. 検索エンジンから公式HPのみを抽出 (紹介ポータルを強力に弾く)
                     try:
                         driver.get(search_url)
                         WebDriverWait(driver, 4).until(
@@ -202,7 +202,6 @@ if uploaded_file is not None:
                                 link_element = result.find_element(By.CLASS_NAME, "result__a")
                                 raw_url = link_element.get_attribute("href")
                                 
-                                # DuckDuckGoのプレキシURLをパース
                                 clean_url = raw_url
                                 if "uddg=" in raw_url:
                                     from urllib.parse import parse_qs, urlparse
@@ -212,50 +211,76 @@ if uploaded_file is not None:
                                         clean_url = queries['uddg'][0]
                                 
                                 if clean_url.startswith("http"):
-                                    # ★【重要：紹介ポータルサイト排除フィルター】
-                                    # ゴミデータを掴まないよう、主要なポータルサイトやマップドメインを完全に無視してスキップ
+                                    # ポータル・ディレクトリードメインを無視
                                     if any(p in clean_url for p in [
                                         "kaikei-home.com", "ezeirisi.jp", "map.yahoo.co.jp", "zeiri4.com", 
-                                        "google.com", "youtube.com", "twitter.com", "facebook.com", "instagram.com"
+                                        "google.com", "youtube.com", "twitter.com", "facebook.com", "instagram.com",
+                                        "houjin.jp", "i-sozoku.com", "mapion.co.jp"
                                     ]):
                                         continue
                                         
                                     url_found = clean_url
-                                    break # 有効な公式サイトを見つけたら即ループ脱出
+                                    break
                             except:
                                 pass
                     except:
                         pass
                     
-                    # 2. 本物のHPに突入して安全にテキストを引っこ抜き、AIで精密推論
+                    # 2. 【階層深掘りハイブリッド】公式サイトから情報を凝縮抽出
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
+                            # ① まずトップページを開いて基本テキストを取得
                             try:
                                 driver.get(url_found)
-                                time.sleep(1.5)
+                                time.sleep(1.2)
                             except:
                                 pass
                             
-                            # 表面上の文字データを極めて安全に取得（型崩れなし）
-                            clean_text = driver.find_element(By.TAG_NAME, "body").text
-                            truncated_text = clean_text[:25000]
+                            combined_text = f"--- TOP PAGE --- \n {driver.find_element(By.TAG_NAME, 'body').text} \n"
                             
-                            # プロンプト：パースバグを100%回避する箇条書きテキスト指定
+                            # ② ページ内から「概要」「挨拶」等の下層ページリンクを自動スカウト
+                            target_pages = []
+                            links = driver.find_elements(By.TAG_NAME, "a")
+                            for link in links:
+                                try:
+                                    link_text = link.text.strip()
+                                    link_url = link.get_attribute("href")
+                                    if any(k in link_text for k in ["概要", "挨拶", "プロフィール", "紹介", "アクセス", "案内", "組織", "基本", "会社"]):
+                                        if link_url and link_url.startswith("http") and link_url != url_found:
+                                            target_pages.append(link_url)
+                                except:
+                                    pass
+                            
+                            # 重複を削り、最大3つの下層ページをさらに巡回してテキストをガッチャンコ結合
+                            target_pages = list(dict.fromkeys(target_pages))[:3]
+                            for page in target_pages:
+                                try:
+                                    driver.get(page)
+                                    time.sleep(1.0)
+                                    page_text = driver.find_element(By.TAG_NAME, "body").text
+                                    combined_text += f"\n --- SUB PAGE ({page}) --- \n {page_text} \n"
+                                except:
+                                    pass
+                            
+                            # トークン節約のための文字カット
+                            truncated_text = combined_text[:30000]
+                            
+                            # ③ 複数ページの文字情報をひとまとめにしてAIに超精密に推論させる
                             prompt = f"""
-                            以下のウェブサイトのテキスト情報を読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して、指定の形式で出力してください。
+                            以下のウェブサイトから抽出された複数ページのテキスト情報（トップページおよび概要・挨拶等の下層ページ）を統合的に読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して指定の形式で出力してください。
 
                             【超厳格ルール】
                             1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
                             ※「総合事務所」や「税理士法人」のような法人名・組織名・メニュー単語は、絶対に代表者名として出力せず、人間の名前のみを抜き出してください。
-                            2. 電話番号は日本の正しい電話番号（例: 011-727-5303）を1つ特定してください。
+                            2. 電話番号は日本の正しい形式（例: 011-727-5303）を1つ特定してください。
                             3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
 
-                            【対象Webサイトテキスト】
+                            【対象Webサイト統合テキスト】
                             {truncated_text}
 
                             【出力フォーマット】
                             余計な前置きや説明は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
-                            URL: (ここに検出したURL)
+                            URL: (無視してください)
                             NAME: (ここに代表者氏名)
                             TEL: (ここに電話番号)
                             """
@@ -263,7 +288,7 @@ if uploaded_file is not None:
                             response = model.generate_content(prompt)
                             ai_output = response.text.strip()
                             
-                            # 返ってきたテキストを1行ずつ安全に回収（JSONバグなし）
+                            # 安全なテキスト回収
                             for line in ai_output.splitlines():
                                 line_str = line.strip()
                                 if line_str.startswith("NAME:"):
@@ -274,7 +299,6 @@ if uploaded_file is not None:
                         except Exception as e:
                             pass
                     
-                    # リストに格納
                     if get_hp: hp_links.append(url_found)
                     if get_rep: representatives.append(rep_found)
                     if get_tel: tel_numbers.append(tel_found)
@@ -282,7 +306,6 @@ if uploaded_file is not None:
                     progress_bar.progress((index + 1) / total_rows)
                     time.sleep(4.5)
                 
-                # 反映
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
                 if get_tel: df['TEL番号'] = tel_numbers
