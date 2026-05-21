@@ -1,6 +1,8 @@
 import time
 import urllib.parse
 import google.generativeai as genai
+# ライブラリの内部定義（Google検索ツール用）をインポート
+from google.generativeai.types import content_types
 import pandas as pd
 import streamlit as st
 
@@ -139,11 +141,20 @@ if uploaded_file is not None:
             
             genai.configure(api_key=gemini_key)
             
-            # ★【エラーの修正箇所】
-            # SDKのバージョンアップに伴い、辞書型ではなく「文字列のリスト」で指定するのが現在の公式ルールです。
+            # ★【エラーの完全修正】
+            # 公式の宣言オブジェクト「content_types.Tool」を使用して、Google検索を正式にシステムへバインドします。
+            google_search_tool = content_types.Tool(
+                google_search_retrieval=content_types.GoogleSearchRetrieval(
+                    dynamic_retrieval_config=content_types.DynamicRetrievalConfig(
+                        mode=content_types.DynamicRetrievalConfig.Mode.MODE_DYNAMIC,
+                        dynamic_threshold=0.0  # すべての質問で必ず最新のGoogle検索を行う設定
+                    )
+                )
+            )
+            
             model = genai.GenerativeModel(
                 model_name="gemini-1.5-pro",
-                tools=['google_search']  # これで正しくGoogleライブ検索機能がONになります
+                tools=[google_search_tool]  # エラーを回避し、確実にリアルタイム検索がONになります
             )
             
             hp_links = []
