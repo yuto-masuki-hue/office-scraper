@@ -8,7 +8,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 # 画面のタイトル設定
 st.title("🏛️ 事務所HPリンク自動抽出ツール")
@@ -30,16 +29,26 @@ if uploaded_file is not None:
     # 実行ボタン
     if st.button("URLの抽出を開始する"):
         
-        # サーバー側でのブラウザ起動設定（画面なしモード）
+        # 【超重要】Streamlit Cloud環境で確実にブラウザを起動するための設定
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # サーバー環境用のドライバー自動設定
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # サーバー内のChromiumブラウザのパスを直接指定（エラー回避の核心）
+        chrome_options.binary_location = "/usr/bin/chromium"
+        
+        # ドライバーもサーバー内のものを直接指定（ChromeDriverManagerは使わない）
+        service = Service(executable_path="/usr/bin/chromedriver")
+        
+        # ブラウザの起動
+        try:
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        except Exception as e:
+            st.error(f"ブラウザの起動に失敗しました。管理者にお問い合わせください。エラー詳細: {e}")
+            st.stop()
         
         hp_links = []
         
@@ -95,7 +104,7 @@ if uploaded_file is not None:
             # 結果を結合
             df['HPリンク'] = hp_links
             status_text.text("✨ 抽出が完了しました！")
-            st.dataframe(df.head())
+            st.dataframe(df)
             
             # CSVダウンロードボタンの設置（Excel文字化け対策utf-8-sig）
             csv_data = df.to_csv(index=False, encoding='utf-8-sig')
