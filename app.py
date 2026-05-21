@@ -18,11 +18,13 @@ st.set_page_config(page_title="SYSTEM: AI SCOPER v3.0", layout="wide")
 
 cyber_css = """
 <style>
+    /* 全体の背景とテキストカラー */
     .stApp {
         background-color: #0d0f12 !important;
         color: #00ffcc !important;
         font-family: 'Courier New', Courier, monospace !important;
     }
+    /* メインタイトル */
     h1 {
         color: #ff0055 !important;
         text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
@@ -30,9 +32,23 @@ cyber_css = """
         padding-bottom: 10px;
         font-weight: bold !important;
     }
-    .stMarkdown p {
-        color: #8fa0b0 !important;
+    /* サブテキスト・汎用ラベル文字をくっきり白・明るいグレー化 */
+    .stMarkdown p, label, .stSlider p {
+        color: #e2e8f0 !important;
     }
+    /* ★【修正】API KEY入力欄のラベル文字色を鮮やかに */
+    div[data-testid="stTextInput"] label p {
+        color: #00ffcc !important;
+        font-weight: bold !important;
+        text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
+    }
+    /* ★【修正】API KEYの入力ボックス本体の背景と入力文字色 */
+    div[data-testid="stTextInput"] input {
+        background-color: #1a1f26 !important;
+        color: #ffffff !important;
+        border: 1px solid #00ffcc !important;
+    }
+    /* ★【修正】チェックボックスカードの文字色をハッキリした白に強制上書き */
     div[data-testid="stCheckbox"] {
         background-color: #1a1f26;
         padding: 8px 15px;
@@ -41,6 +57,11 @@ cyber_css = """
         box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
         margin-bottom: 5px;
     }
+    div[data-testid="stCheckbox"] label span p {
+        color: #ffffff !important;
+        font-weight: bold !important;
+    }
+    /* ボタンをいかつくネオン化 */
     div.stButton > button:first-child {
         background-color: #ff0055 !important;
         color: #ffffff !important;
@@ -58,6 +79,7 @@ cyber_css = """
         box-shadow: 0 0 20px #00ffcc;
         border: 2px solid #0d0f12 !important;
     }
+    /* データフレームのサイバー化 */
     .stDataFrame {
         border: 1px solid #ff0055 !important;
         box-shadow: 0 0 10px rgba(255, 0, 85, 0.15);
@@ -72,7 +94,7 @@ st.html(cyber_css)
 st.title("⚡ AI INFO SCOPER // CORE_SYSTEM v3.0")
 st.write("TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)")
 
-# 画面にAPIキーの入力欄を設置（パスワード非表示モード）
+# 画面にAPIキーの入力欄を設置
 gemini_key = st.text_input("🔑 ENTER GEMINI API KEY", type="password", help="Google AI Studioで取得した無料のキーを入力してください")
 
 col1, col2 = st.columns([1, 2])
@@ -108,9 +130,7 @@ if uploaded_file is not None:
     else:
         if st.button("▶ EXECUTE AI EXTRACTION"):
             
-            # Gemini APIの初期化
             genai.configure(api_key=gemini_key)
-            # 構造化データ（JSON）で返してもらうための最新最軽量モデル
             model = genai.GenerativeModel("gemini-2.5-flash")
             
             chrome_options = Options()
@@ -144,7 +164,6 @@ if uploaded_file is not None:
                     
                     status_text.markdown(f"`[AI PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
                     
-                    # 1. DuckDuckGoからHPのURLを探す
                     query = f"{office_name} {address}"
                     search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
                     
@@ -180,23 +199,19 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    # 2. 【AI脳にスイッチ】HPの生HTMLをGeminiに投げて、文脈から代表名とTELを推論抽出
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
                             driver.get(url_found)
                             time.sleep(1.2)
                             
-                            # ページの全テキスト（またはHTML）を一撃で取得
                             raw_html = driver.execute_script("return document.body.innerText;")
-                            # 長すぎる場合のデータ削減（先頭3万文字に制限）
                             truncated_text = raw_html[:30000]
                             
-                            # AIへの超精密な命令文（プロンプト）の作成
                             prompt = f"""
                             あなたは優秀なデータ抽出AIです。提供されたウェブサイトのテキスト情報を読み、この事務所や組織の「代表者名（個人の氏名のみ）」と「電話番号（固定電話や代表電話など）」を注意深く推論して見つけ出してください。
 
                             【抽出ルール】
-                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」などの役職がついている人物の「氏名（漢字）」を特定してください。「総合事務所」や「税理士法人」のような組織名は絶対に名前に含めず、個人の名前のみを抽出してください。
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」などの役職がついている人物の「氏名（漢字）」を特定してください。「総合事務所」や「税理士法人」のような組織名は絶対に名 outreach に含めず、個人の名前のみを抽出してください。
                             2. 電話番号は日本の正しい電話番号（例: 03-XXXX-XXXX, 0120-XXX-XXX）を1つ特定してください。郵便番号やシリアルコードは絶対に除外してください。
                             3. 情報が見つからない場合は、必ず「見つかりませんでした」としてください。
 
@@ -208,15 +223,12 @@ if uploaded_file is not None:
                             {{"representative": "ここに代表者の氏名", "tel": "ここに電話番号"}}
                             """
                             
-                            # Geminiに送信して推論を実行
                             response = model.generate_content(prompt)
                             ai_output = response.text.strip()
                             
-                            # ```json や ``` などの余計な装飾が含まれている場合の除去ガード
                             if ai_output.startswith("```"):
                                 ai_output = ai_output.replace("```json", "").replace("```", "").strip()
                             
-                            # JSONとして解析してデータを綺麗に回収
                             data_json = json.loads(ai_output)
                             
                             if get_rep:
@@ -225,7 +237,6 @@ if uploaded_file is not None:
                                 tel_found = data_json.get("tel", "見つかりませんでした")
                                 
                         except Exception as e:
-                            # パースエラー等のバックアップ
                             pass
                     
                     if get_hp: hp_links.append(url_found)
@@ -233,8 +244,6 @@ if uploaded_file is not None:
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    
-                    # 【超重要】Geminiの無料枠APIは「1分間に15回リクエスト」が上限なので、安全のため4秒待機
                     time.sleep(4.0)
                 
                 if get_hp: df['HPリンク'] = hp_links
