@@ -12,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 # =====================================================================
-# 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー (CSSハック)
+# 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー調整 (CSSハック)
 # =====================================================================
 st.set_page_config(page_title="SYSTEM: AI SCOPER v3.0", layout="wide")
 
@@ -25,17 +25,17 @@ cyber_css = """
         font-family: 'Courier New', Courier, monospace !important;
     }
     
-    /* ───【最重要修正：タイトルエリアの上部完全固定化】─── */
+    /* ───【修正：タイトルエリアの固定位置と高さを最適化】─── */
     .sticky-header {
         position: fixed;
-        top: 0;
+        top: 0; /* 画面の一番上ぴったりに配置 */
         left: 0;
         width: 100%;
-        background-color: #0d0f12 !important;
-        z-index: 99999;
-        padding: 20px 50px 10px 50px;
+        background-color: #0d0f12 !important; /* 背後を隠すため完全な黒背景 */
+        z-index: 999999; /* 他のどの要素よりも前面に出す */
+        padding: 50px 50px 15px 50px; /* ★上部パディングを増やして文字を下に押し下げる */
         border-bottom: 2px solid #00ffcc;
-        box-shadow: 0 5px 20px rgba(0, 255, 204, 0.1);
+        box-shadow: 0 5px 20px rgba(0, 255, 204, 0.2);
     }
     /* タイトル文字のネオン装飾 */
     .sticky-header h1 {
@@ -46,9 +46,9 @@ cyber_css = """
         font-weight: bold !important;
         font-size: 2.2rem !important;
     }
-    /* タイトルが上に固定された分、下のメインコンテンツが裏に隠れないよう余白を強制確保 */
+    /* 下のメインコンテンツ（APIキー入力等）がヘッダーの裏に隠れないよう、上部の余白をさらに拡大 */
     .stMainBlockContainer {
-        padding-top: 170px !important;
+        padding-top: 210px !important; /* ★ここをさらに広げてパーツ全体を下げました */
     }
     /* ─────────────────────────────────────────────────── */
 
@@ -114,7 +114,7 @@ st.html(cyber_css)
 header_html = """
 <div class="sticky-header">
     <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v3.0</h1>
-    <p style="color: #8fa0b0 !important; margin: 5px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)</p>
+    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)</p>
 </div>
 """
 st.html(header_html)
