@@ -17,13 +17,11 @@ st.set_page_config(page_title="SYSTEM: INFO SCOPER v2.0", layout="wide")
 
 cyber_css = """
 <style>
-    /* 全体の背景とテキストカラー */
     .stApp {
         background-color: #0d0f12 !important;
         color: #00ffcc !important;
         font-family: 'Courier New', Courier, monospace !important;
     }
-    /* メインタイトル */
     h1 {
         color: #ff0055 !important;
         text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
@@ -31,11 +29,9 @@ cyber_css = """
         padding-bottom: 10px;
         font-weight: bold !important;
     }
-    /* サブテキスト */
     .stMarkdown p {
         color: #8fa0b0 !important;
     }
-    /* チェックボックスやアップローダーの枠線強化 */
     div[data-testid="stCheckbox"] {
         background-color: #1a1f26;
         padding: 8px 15px;
@@ -44,7 +40,6 @@ cyber_css = """
         box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
         margin-bottom: 5px;
     }
-    /* ボタンをいかつくネオン化 */
     div.stButton > button:first-child {
         background-color: #ff0055 !important;
         color: #ffffff !important;
@@ -62,7 +57,6 @@ cyber_css = """
         box-shadow: 0 0 20px #00ffcc;
         border: 2px solid #0d0f12 !important;
     }
-    /* データフレームのサイバー化 */
     .stDataFrame {
         border: 1px solid #ff0055 !important;
         box-shadow: 0 0 10px rgba(255, 0, 85, 0.15);
@@ -158,7 +152,7 @@ if uploaded_file is not None:
                         for result in search_results:
                             class_attr = result.get_attribute("class")
                             if "ad" in class_attr or "badge" in class_attr:
-                                continue  # 広告スキップ
+                                continue
                             
                             try:
                                 link_element = result.find_element(By.CLASS_NAME, "result__a")
@@ -171,53 +165,81 @@ if uploaded_file is not None:
                                         url_found = queries['uddg'][0]
                                 elif raw_url.startswith("http"):
                                     url_found = raw_url
-                                break  # 最初のオーガニック結果のみ取得
+                                break
                             except:
                                 pass
                     except:
                         pass
                     
-                    # 2. 【大改善】見つかったHPの内部に入り、テキストから代表者とTELをディープスクレイピング
+                    # 2. 【階層深掘りモード発動】ターゲットサイトの解析
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
-                            # 実際の事務所サイトに突入
+                            # まずトップページを開く
                             driver.get(url_found)
-                            time.sleep(1.0)  # レンダリング待ち
+                            time.sleep(1.0)
                             
-                            # サイト全体の可視テキストを全抽出
-                            body_text = driver.find_element(By.TAG_NAME, "body").text
+                            # 解析対象となるページのURLリスト（最初はトップページを登録）
+                            target_pages = [url_found]
                             
-                            # ── 電話番号の精密抽出 ──
-                            if get_tel:
-                                # 一般的な日本の固定電話、フリーダイヤル、携帯などのパターン
-                                tel_match = re.search(r'(?:TEL|tel|☏|電話番号)?[:：\s]*(\(?\d{2,5}\)?[-ー\s]?\d{1,4}[-ー\s]?\d{3,4})', body_text)
-                                if tel_match:
-                                    tel_found = tel_match.group(1).strip()
-                                else:
-                                    # 装飾なしの数字列パターンを予備サーチ
-                                    tel_match_fallback = re.search(r'\d{2,5}-\d{1,4}-\d{3,4}', body_text)
-                                    if tel_match_fallback:
-                                        tel_found = tel_match_fallback.group().strip()
+                            # ── 会社概要や代表挨拶ページのリンクを自動検知 ──
+                            # ページ内のすべての <a> タグ（リンク）を調べる
+                            links = driver.find_elements(By.TAG_NAME, "a")
+                            for link in links:
+                                try:
+                                    link_text = link.text.strip()
+                                    link_url = link.get_attribute("href")
+                                    
+                                    # 「会社概要」「代表挨拶」などのキーワードがリンク名に含まれていたら追跡リストに追加
+                                    if any(k in link_text for k in ["概要", "挨拶", "プロフィール", "紹介", "アクセス", "案内", "組織"]):
+                                        if link_url and link_url.startswith("http") and link_url not in target_pages:
+                                            target_pages.append(link_url)
+                                except:
+                                    pass
                             
-                            # ── 代表者名の精密抽出 ──
-                            if get_rep:
-                                # 日本の士業・法人の代表職の記述パターンを網羅（名前の前の不要な記号や空白を徹底カバー）
-                                rep_patterns = [
-                                    r'(?:代表取締役|代表社員|代表弁護士|代表税理士|代表司法書士|代表行政書士|所長|理事長|院長|代表|共同代表)[:：\s]*(?:氏名)?\s*([一-龠]{2,4})\s*([一-龠]{2,4})?',
-                                    r'([一-龠]{2,4})\s*([一-龠]{2,4})?\s*(?:代表取締役|代表社員|代表弁護士|代表税理士|所長|理事長)に就任'
-                                ]
-                                for pattern in rep_patterns:
-                                    rep_match = re.search(pattern, body_text)
-                                    if rep_match:
-                                        # 苗字と名前がスペースで分かれている場合も考慮して結合
-                                        last_name = rep_match.group(1)
-                                        first_name = rep_match.group(2) if rep_match.group(2) else ""
-                                        rep_found = (last_name + " " + first_name).strip()
-                                        break
+                            # 重複を除外して、最大3ページまで深掘り（速度と負荷のバランスのため制限）
+                            target_pages = list(dict.fromkeys(target_pages))[:3]
+                            
+                            # 検出された別階層のページを順番にめくってテキストスキャン
+                            for page in target_pages:
+                                # トップページ以外なら移動する
+                                if page != url_found:
+                                    driver.get(page)
+                                    time.sleep(0.8)
+                                
+                                body_text = driver.find_element(By.TAG_NAME, "body").text
+                                
+                                # ── TEL番号の抽出（まだ見つかっていない場合のみ実行） ──
+                                if get_tel and tel_found == "見つかりませんでした":
+                                    tel_match = re.search(r'(?:TEL|tel|☏|電話番号)?[:：\s]*(\(?\d{2,5}\)?[-ー\s]?\d{1,4}[-ー\s]?\d{3,4})', body_text)
+                                    if tel_match:
+                                        tel_found = tel_match.group(1).strip()
+                                    else:
+                                        tel_match_fallback = re.search(r'\d{2,5}-\d{1,4}-\d{3,4}', body_text)
+                                        if tel_match_fallback:
+                                            tel_found = tel_match_fallback.group().strip()
+                                
+                                # ── 代表者名の抽出（まだ見つかっていない場合のみ実行） ──
+                                if get_rep and rep_found == "見つかりませんでした":
+                                    rep_patterns = [
+                                        r'(?:代表取締役|代表社員|代表弁護士|代表税理士|代表司法書士|代表行政書士|所長|理事長|院長|代表|共同代表)[:：\s]*(?:氏名)?\s*([一-龠]{2,4})\s*([一-龠]{2,4})?',
+                                        r'([一-龠]{2,4})\s*([一-龠]{2,4})?\s*(?:代表取締役|代表社員|代表弁護士|代表税理士|所長|理事長)に就任',
+                                        r'(?:ご挨拶|あいさつ)[\s\S]*?(?:代表|所長|院長|理事長)[\s\S]*?([一-龠]{2,4})\s*([一-龠]{2,4})?'
+                                    ]
+                                    for pattern in rep_patterns:
+                                        rep_match = re.search(pattern, body_text)
+                                        if rep_match:
+                                            last_name = rep_match.group(1)
+                                            first_name = rep_match.group(2) if rep_match.group(2) else ""
+                                            rep_found = (last_name + " " + first_name).strip()
+                                            break
+                                            
+                                # 両方とも見つかったら、残りのページ巡回を切り上げて終了
+                                if (not get_tel or tel_found != "見つかりませんでした") and (not get_rep or rep_found != "見つかりませんでした"):
+                                    break
+                                    
                         except:
                             pass
                     
-                    # ユーザーのチェック状態に関わらず、非選択項目は結合時に排除されるよう「選択されたものだけ」リストに詰める
                     if get_hp: hp_links.append(url_found)
                     if get_rep: representatives.append(rep_found)
                     if get_tel: tel_numbers.append(tel_found)
