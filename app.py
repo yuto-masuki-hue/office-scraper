@@ -1,3 +1,4 @@
+import re
 import time
 import urllib.parse
 import pandas as pd
@@ -9,111 +10,229 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-# 画面のタイトル設定
-st.title("🏛️ 事務所HPリンク自動抽出ツール")
-st.write("A列に事務所名、B列に住所が入ったCSVファイルをアップロードしてください。広告を飛ばして1番上のURLを抽出します。")
+# =====================================================================
+# 0. いかついサイバーパンク・ダークUIのカスタム設定 (CSS注入)
+# =====================================================================
+st.set_page_config(page_title="SYSTEM: INFO SCOPER v2.0", layout="wide")
 
-# ファイルアップローダーの設置
-uploaded_file = st.file_uploader("CSVファイルを選択してください", type=["csv"])
+cyber_css = """
+<style>
+    /* 全体の背景とテキストカラー */
+    .stApp {
+        background-color: #0d0f12 !important;
+        color: #00ffcc !important;
+        font-family: 'Courier New', Courier, monospace !important;
+    }
+    /* メインタイトル */
+    h1 {
+        color: #ff0055 !important;
+        text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
+        border-bottom: 2px solid #00ffcc;
+        padding-bottom: 10px;
+        font-weight: bold !important;
+    }
+    /* サブテキスト */
+    .stMarkdown p {
+        color: #8fa0b0 !important;
+    }
+    /* チェックボックスやアップローダーの枠線強化 */
+    div[data-testid="stCheckbox"] {
+        background-color: #1a1f26;
+        padding: 8px 15px;
+        border-radius: 5px;
+        border: 1px solid #00ffcc;
+        box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
+        margin-bottom: 5px;
+    }
+    /* ボタンをいかつくネオン化 */
+    div.stButton > button:first-child {
+        background-color: #ff0055 !important;
+        color: #ffffff !important;
+        border: 2px solid #ffffff !important;
+        border-radius: 0px !important;
+        box-shadow: 0 0 15px #ff0055;
+        font-weight: bold;
+        width: 100%;
+        letter-spacing: 2px;
+        transition: 0.3s;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #00ffcc !important;
+        color: #0d0f12 !important;
+        box-shadow: 0 0 20px #00ffcc;
+        border: 2px solid #0d0f12 !important;
+    }
+    /* データフレームのサイバー化 */
+    .stDataFrame {
+        border: 1px solid #ff0055 !important;
+        box-shadow: 0 0 10px rgba(255, 0, 85, 0.15);
+    }
+</style>
+"""
+st.markdown(cyber_css, unsafe_html=True)
 
+# =====================================================================
+# 1. UIパーツ配置
+# =====================================================================
+st.title("⚡ INFO EXTRACTOR // CORE_SYSTEM v2.0")
+st.write("TARGET SYSTEM: DATA INGESTION & INTELLIGENCE EXTRACTOR")
+
+# 2列に分割して、左に設定、右にファイルアップローダーを配置
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象の選択)")
+    get_hp = st.checkbox("🔗 HPリンク (URL)", value=True)
+    get_rep = st.checkbox("👤 代表者名 (REPRESENTATIVE)", value=True)
+    get_tel = st.checkbox("📞 TEL番号 (TELEPHONE)", value=True)
+    
+    st.markdown("---")
+    st.markdown("※ 最低1つ以上のモジュールを有効化してください。")
+
+with col2:
+    st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
+    uploaded_file = st.file_uploader("Drop Target CSV File here", type=["csv"])
+
+# =====================================================================
+# 2. メインロジック
+# =====================================================================
 if uploaded_file is not None:
-    # CSVの読み込み
     try:
         df = pd.read_csv(uploaded_file, encoding='utf-8')
     except UnicodeDecodeError:
         df = pd.read_csv(uploaded_file, encoding='shift_jis')
         
-    st.success("ファイルの読み込みに成功しました！")
-    st.dataframe(df.head()) # 先頭を表示
+    st.success("🤖 TARGET DATA LOADED SUCCESSFULLY.")
+    st.dataframe(df.head(3))
 
-    # 実行ボタン
-    if st.button("URLの抽出を開始する"):
-        
-        # Streamlit Cloud環境で確実にブラウザを起動するための設定
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-        
-        # サーバー内のChromiumブラウザのパスを直接指定
-        chrome_options.binary_location = "/usr/bin/chromium"
-        service = Service(executable_path="/usr/bin/chromedriver")
-        
-        # ブラウザの起動
-        try:
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-        except Exception as e:
-            st.error(f"ブラウザの起動に失敗しました。詳細: {e}")
-            st.stop()
-        
-        hp_links = []
-        
-        # プログレスバーの設置
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            total_rows = len(df)
-            for index, row in df.iterrows():
-                office_name = row.iloc[0]
-                address = row.iloc[1]
-                
-                status_text.text(f"検索中 ({index+1}/{total_rows}): {office_name}")
-                
-                query = f"{office_name} {address} ホームページ"
-                search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-                
-                try:
-                    driver.get(search_url)
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.CLASS_NAME, "result"))
-                    )
-                    search_results = driver.find_elements(By.CLASS_NAME, "result")
+    # 何も選択されていない場合のガード
+    if not (get_hp or get_rep or get_tel):
+        st.warning("⚠️ エラー: 少なくとも1つの抽出対象を選択してください。")
+    else:
+        # 実行ボタン
+        if st.button("▶ EXECUTE SYSTEM EXTRACTION"):
+            
+            # ブラウザ起動設定
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            
+            chrome_options.binary_location = "/usr/bin/chromium"
+            service = Service(executable_path="/usr/bin/chromedriver")
+            
+            try:
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+            except Exception as e:
+                st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. CRITICAL_ERROR: {e}")
+                st.stop()
+            
+            # 選択されたものだけ初期化
+            hp_links = [] if get_hp else None
+            representatives = [] if get_rep else None
+            tel_numbers = [] if get_tel else None
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                total_rows = len(df)
+                for index, row in df.iterrows():
+                    office_name = row.iloc[0]
+                    address = row.iloc[1]
                     
-                    url_found = "見つかりませんでした"
-                    for result in search_results:
-                        class_attr = result.get_attribute("class")
-                        if "ad" in class_attr or "badge" in class_attr:
-                            continue # 広告スキップ
+                    status_text.markdown(f"`[PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
+                    
+                    # 検索ワードの動的最適化
+                    keywords = []
+                    if get_rep: keywords.append("代表")
+                    if get_tel: keywords.append("TEL")
+                    if get_hp and not keywords: keywords.append("ホームページ")
+                    
+                    query = f"{office_name} {address} " + " ".join(keywords)
+                    search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+                    
+                    url_found = "N/A" if get_hp else None
+                    rep_found = "N/A" if get_rep else None
+                    tel_found = "N/A" if get_tel else None
+                    
+                    try:
+                        driver.get(search_url)
+                        WebDriverWait(driver, 4).until(
+                            EC.presence_of_element_located((By.CLASS_NAME, "result"))
+                        )
+                        search_results = driver.find_elements(By.CLASS_NAME, "result")
                         
-                        link_element = result.find_element(By.CLASS_NAME, "result__a")
-                        raw_url = link_element.get_attribute("href")
-                        
-                        if "uddg=" in raw_url:
-                            from urllib.parse import parse_qs, urlparse
-                            parsed = urlparse(raw_url)
-                            queries = parse_qs(parsed.query)
-                            if 'uddg' in queries:
-                                url_found = queries['uddg'][0]
-                                break
-                        if raw_url.startswith("http"):
-                            url_found = raw_url
-                            break
-                    hp_links.append(url_found)
-                except:
-                    hp_links.append("見つかりませんでした")
+                        for result in search_results:
+                            class_attr = result.get_attribute("class")
+                            if "ad" in class_attr or "badge" in class_attr:
+                                continue  # 広告スキップ
+                            
+                            # URL抽出（有効時のみ）
+                            if get_hp and url_found == "N/A":
+                                try:
+                                    link_element = result.find_element(By.CLASS_NAME, "result__a")
+                                    raw_url = link_element.get_attribute("href")
+                                    if "uddg=" in raw_url:
+                                        from urllib.parse import parse_qs, urlparse
+                                        parsed = urlparse(raw_url)
+                                        queries = parse_qs(parsed.query)
+                                        if 'uddg' in queries:
+                                            url_found = queries['uddg'][0]
+                                    elif raw_url.startswith("http"):
+                                        url_found = raw_url
+                                except:
+                                    pass
+                            
+                            # テキスト解析抽出
+                            if get_tel or get_rep:
+                                try:
+                                    snippet_text = result.find_element(By.CLASS_NAME, "result__snippet").text
+                                    
+                                    # 電話番号抽出（有効時のみ）
+                                    if get_tel and tel_found == "N/A":
+                                        tel_match = re.search(r'\(?\d{2,5}\)?[-ー\s]?\d{1,4}[-ー\s]?\d{3,4}', snippet_text)
+                                        if tel_match:
+                                            tel_found = tel_match.group()
+                                    
+                                    # 代表者名抽出（有効時のみ）
+                                    if get_rep and rep_found == "N/A":
+                                        rep_match = re.search(r'(?:代表|所長|代表社員|理事長|院長)(?:：|:\s*|明氏)?([一-龠]{2,4})', snippet_text)
+                                        if rep_match:
+                                            rep_found = rep_match.group(1)
+                                except:
+                                    pass
+                                    
+                    except:
+                        pass
+                    
+                    if get_hp: hp_links.append(url_found)
+                    if get_rep: representatives.append(rep_found)
+                    if get_tel: tel_numbers.append(tel_found)
+                    
+                    progress_bar.progress((index + 1) / total_rows)
+                    time.sleep(1.2)
                 
-                progress_bar.progress((index + 1) / total_rows)
-                time.sleep(1.5)
+                # チェックが入っている列だけを元のデータに結合
+                if get_hp: df['HPリンク'] = hp_links
+                if get_rep: df['代表者名'] = representatives
+                if get_tel: df['TEL番号'] = tel_numbers
                 
-            # 結果を結合
-            df['HPリンク'] = hp_links
-            status_text.text("✨ 抽出が完了しました！")
-            st.dataframe(df)
-            
-            # 【★文字化け対策の修正ポイント★】
-            # 文字列ではなく、Excelが誤認しないように「utf-8-sig」のバイナリ（bytes）データに変換して出力します
-            csv_string = df.to_csv(index=False, encoding='utf-8-sig')
-            csv_bytes = csv_string.encode('utf-8-sig')
-            
-            st.download_button(
-                label="加工済みCSVをダウンロード",
-                data=csv_bytes,
-                file_name="extracted_office_links.csv",
-                mime="text/csv"
-            )
-            
-        finally:
-            driver.quit()
+                status_text.markdown("### 🟢 EXTRACTION COMPLETE. OUTPUT GENERATED.")
+                st.dataframe(df)
+                
+                # ダウンロード（文字化け完全防止バイナリ）
+                csv_string = df.to_csv(index=False, encoding='utf-8-sig')
+                csv_bytes = csv_string.encode('utf-8-sig')
+                
+                st.download_button(
+                    label="⚡ DOWNLOAD EXTRACTED PACK",
+                    data=csv_bytes,
+                    file_name="cyber_extracted_info.csv",
+                    mime="text/csv"
+                )
+                
+            finally:
+                driver.quit()
