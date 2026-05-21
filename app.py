@@ -12,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 # =====================================================================
-# 0. いかついサイバーパンク・ダークUIのカスタム設定 (安全なHTML注入)
+# 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー (CSSハック)
 # =====================================================================
 st.set_page_config(page_title="SYSTEM: AI SCOPER v3.0", layout="wide")
 
@@ -24,47 +24,63 @@ cyber_css = """
         color: #00ffcc !important;
         font-family: 'Courier New', Courier, monospace !important;
     }
-    /* メインタイトル */
-    h1 {
+    
+    /* ───【最重要修正：タイトルエリアの上部完全固定化】─── */
+    .sticky-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background-color: #0d0f12 !important;
+        z-index: 99999;
+        padding: 20px 50px 10px 50px;
+        border-bottom: 2px solid #00ffcc;
+        box-shadow: 0 5px 20px rgba(0, 255, 204, 0.1);
+    }
+    /* タイトル文字のネオン装飾 */
+    .sticky-header h1 {
         color: #ff0055 !important;
         text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
-        border-bottom: 2px solid #00ffcc;
-        padding-bottom: 10px;
+        margin: 0 !important;
+        padding: 0 !important;
         font-weight: bold !important;
+        font-size: 2.2rem !important;
     }
-    /* サブテキスト・汎用ラベル文字をくっきり白・明るいグレー化 */
+    /* タイトルが上に固定された分、下のメインコンテンツが裏に隠れないよう余白を強制確保 */
+    .stMainBlockContainer {
+        padding-top: 170px !important;
+    }
+    /* ─────────────────────────────────────────────────── */
+
+    /* サブテキスト・汎用ラベル文字をくっきり白化 */
     .stMarkdown p, label, .stSlider p {
         color: #e2e8f0 !important;
     }
-    /* API KEY入力欄のラベル文字色を鮮やかに */
+    /* API KEY入力欄のラベル文字色 */
     div[data-testid="stTextInput"] label p {
         color: #00ffcc !important;
         font-weight: bold !important;
         text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
     }
-    /* API KEYの入力ボックス本体の背景と入力文字色 */
+    /* API KEYの入力ボックス本体 */
     div[data-testid="stTextInput"] input {
         background-color: #1a1f26 !important;
         color: #ffffff !important;
         border: 1px solid #00ffcc !important;
     }
-    
-    /* ───【最重要修正：チェックボックスカードの文字色完全固定】─── */
+    /* チェックボックスカードの完全固定 */
     div[data-testid="stCheckbox"] {
-        background-color: #1a1f26 !important;
+        background-color: #1a1f26;
         padding: 8px 15px;
         border-radius: 5px;
         border: 1px solid #00ffcc !important;
         box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
         margin-bottom: 5px;
     }
-    /* カプセル内にあるすべてのテキスト要素（子要素全て）の文字色を強制白に上書き */
     div[data-testid="stCheckbox"] * {
         color: #ffffff !important;
         font-weight: bold !important;
     }
-    /* ──────────────────────────────────────────────────────── */
-
     /* ボタンをいかつくネオン化 */
     div.stButton > button:first-child {
         background-color: #ff0055 !important;
@@ -93,12 +109,19 @@ cyber_css = """
 st.html(cyber_css)
 
 # =====================================================================
-# 1. UIパーツ配置
+# 1. 固定ヘッダーの配置 (HTMLで直書きして最上部に固定)
 # =====================================================================
-st.title("⚡ AI INFO SCOPER // CORE_SYSTEM v3.0")
-st.write("TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)")
+header_html = """
+<div class="sticky-header">
+    <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v3.0</h1>
+    <p style="color: #8fa0b0 !important; margin: 5px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)</p>
+</div>
+"""
+st.html(header_html)
 
-# 画面にAPIキーの入力欄を設置
+# =====================================================================
+# 2. UIパーツ配置
+# =====================================================================
 gemini_key = st.text_input("🔑 ENTER GEMINI API KEY", type="password", help="Google AI Studioで取得した無料のキーを入力してください")
 
 col1, col2 = st.columns([1, 2])
@@ -116,7 +139,7 @@ with col2:
     uploaded_file = st.file_uploader("Drop Target CSV File here", type=["csv"])
 
 # =====================================================================
-# 2. メインロジック
+# 3. メインロジック
 # =====================================================================
 if uploaded_file is not None:
     try:
@@ -149,6 +172,9 @@ if uploaded_file is not None:
             
             try:
                 driver = webdriver.Chrome(service=service, options=chrome_options)
+                driver.set_page_load_timeout(10)
+                driver.set_script_timeout(5)
+                driver.implicitly_wait(3)
             except Exception as e:
                 st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. CRITICAL_ERROR: {e}")
                 st.stop()
@@ -205,11 +231,14 @@ if uploaded_file is not None:
                     
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
-                            driver.get(url_found)
-                            time.sleep(1.2)
+                            try:
+                                driver.get(url_found)
+                                time.sleep(1.2)
+                            except:
+                                pass
                             
                             raw_html = driver.execute_script("return document.body.innerText;")
-                            truncated_text = raw_html[:30000]
+                            truncated_text = raw_html[:25000]
                             
                             prompt = f"""
                             あなたは優秀なデータ抽出AIです。提供されたウェブサイトのテキスト情報を読み、この事務所や組織の「代表者名（個人の氏名のみ）」と「電話番号（固定電話や代表電話など）」を注意深く推論して見つけ出してください。
