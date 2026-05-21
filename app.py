@@ -29,7 +29,7 @@ if uploaded_file is not None:
     # 実行ボタン
     if st.button("URLの抽出を開始する"):
         
-        # 【超重要】Streamlit Cloud環境で確実にブラウザを起動するための設定
+        # Streamlit Cloud環境で確実にブラウザを起動するための設定
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
@@ -37,17 +37,15 @@ if uploaded_file is not None:
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # サーバー内のChromiumブラウザのパスを直接指定（エラー回避の核心）
+        # サーバー内のChromiumブラウザのパスを直接指定
         chrome_options.binary_location = "/usr/bin/chromium"
-        
-        # ドライバーもサーバー内のものを直接指定（ChromeDriverManagerは使わない）
         service = Service(executable_path="/usr/bin/chromedriver")
         
         # ブラウザの起動
         try:
             driver = webdriver.Chrome(service=service, options=chrome_options)
         except Exception as e:
-            st.error(f"ブラウザの起動に失敗しました。管理者にお問い合わせください。エラー詳細: {e}")
+            st.error(f"ブラウザの起動に失敗しました。詳細: {e}")
             st.stop()
         
         hp_links = []
@@ -97,20 +95,22 @@ if uploaded_file is not None:
                 except:
                     hp_links.append("見つかりませんでした")
                 
-                # 進捗更新
                 progress_bar.progress((index + 1) / total_rows)
-                time.sleep(1.5) # サーバー負荷軽減
+                time.sleep(1.5)
                 
             # 結果を結合
             df['HPリンク'] = hp_links
             status_text.text("✨ 抽出が完了しました！")
             st.dataframe(df)
             
-            # CSVダウンロードボタンの設置（Excel文字化け対策utf-8-sig）
-            csv_data = df.to_csv(index=False, encoding='utf-8-sig')
+            # 【★文字化け対策の修正ポイント★】
+            # 文字列ではなく、Excelが誤認しないように「utf-8-sig」のバイナリ（bytes）データに変換して出力します
+            csv_string = df.to_csv(index=False, encoding='utf-8-sig')
+            csv_bytes = csv_string.encode('utf-8-sig')
+            
             st.download_button(
                 label="加工済みCSVをダウンロード",
-                data=csv_data,
+                data=csv_bytes,
                 file_name="extracted_office_links.csv",
                 mime="text/csv"
             )
