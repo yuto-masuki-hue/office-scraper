@@ -69,7 +69,6 @@ cyber_css = """
     }
 </style>
 """
-# エラーが出る st.markdown をやめ、最新の st.html を使うことで安全にCSSを適応
 st.html(cyber_css)
 
 # =====================================================================
@@ -141,17 +140,13 @@ if uploaded_file is not None:
                     
                     status_text.markdown(f"`[PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
                     
-                    keywords = []
-                    if get_rep: keywords.append("代表")
-                    if get_tel: keywords.append("TEL")
-                    if get_hp and not keywords: keywords.append("ホームページ")
-                    
-                    query = f"{office_name} {address} " + " ".join(keywords)
+                    # 1. 検索エンジンから本物のHPリンク（URL）を抽出
+                    query = f"{office_name} {address}"
                     search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
                     
-                    url_found = "N/A" if get_hp else None
-                    rep_found = "N/A" if get_rep else None
-                    tel_found = "N/A" if get_tel else None
+                    url_found = "見つかりませんでした"
+                    rep_found = "見つかりませんでした"
+                    tel_found = "見つかりませんでした"
                     
                     try:
                         driver.get(search_url)
@@ -163,48 +158,72 @@ if uploaded_file is not None:
                         for result in search_results:
                             class_attr = result.get_attribute("class")
                             if "ad" in class_attr or "badge" in class_attr:
-                                continue
+                                continue  # 広告スキップ
                             
-                            if get_hp and url_found == "N/A":
-                                try:
-                                    link_element = result.find_element(By.CLASS_NAME, "result__a")
-                                    raw_url = link_element.get_attribute("href")
-                                    if "uddg=" in raw_url:
-                                        from urllib.parse import parse_qs, urlparse
-                                        parsed = urlparse(raw_url)
-                                        queries = parse_qs(parsed.query)
-                                        if 'uddg' in queries:
-                                            url_found = queries['uddg'][0]
-                                    elif raw_url.startswith("http"):
-                                        url_found = raw_url
-                                except:
-                                    pass
-                            
-                            if get_tel or get_rep:
-                                try:
-                                    snippet_text = result.find_element(By.CLASS_NAME, "result__snippet").text
-                                    
-                                    if get_tel and tel_found == "N/A":
-                                        tel_match = re.search(r'\(?\d{2,5}\)?[-ー\s]?\d{1,4}[-ー\s]?\d{3,4}', snippet_text)
-                                        if tel_match:
-                                            tel_found = tel_match.group()
-                                    
-                                    if get_rep and rep_found == "N/A":
-                                        rep_match = re.search(r'(?:代表|所長|代表社員|理事長|院長)(?:：|:\s*|明氏)?([一-龠]{2,4})', snippet_text)
-                                        if rep_match:
-                                            rep_found = rep_match.group(1)
-                                except:
-                                    pass
-                                    
+                            try:
+                                link_element = result.find_element(By.CLASS_NAME, "result__a")
+                                raw_url = link_element.get_attribute("href")
+                                if "uddg=" in raw_url:
+                                    from urllib.parse import parse_qs, urlparse
+                                    parsed = urlparse(raw_url)
+                                    queries = parse_qs(parsed.query)
+                                    if 'uddg' in queries:
+                                        url_found = queries['uddg'][0]
+                                elif raw_url.startswith("http"):
+                                    url_found = raw_url
+                                break  # 最初のオーガニック結果のみ取得
+                            except:
+                                pass
                     except:
                         pass
                     
+                    # 2. 【大改善】見つかったHPの内部に入り、テキストから代表者とTELをディープスクレイピング
+                    if url_found != "見つかりませんでした" and (get_rep or get_tel):
+                        try:
+                            # 実際の事務所サイトに突入
+                            driver.get(url_found)
+                            time.sleep(1.0)  # レンダリング待ち
+                            
+                            # サイト全体の可視テキストを全抽出
+                            body_text = driver.find_element(By.TAG_NAME, "body").text
+                            
+                            # ── 電話番号の精密抽出 ──
+                            if get_tel:
+                                # 一般的な日本の固定電話、フリーダイヤル、携帯などのパターン
+                                tel_match = re.search(r'(?:TEL|tel|☏|電話番号)?[:：\s]*(\(?\d{2,5}\)?[-ー\s]?\d{1,4}[-ー\s]?\d{3,4})', body_text)
+                                if tel_match:
+                                    tel_found = tel_match.group(1).strip()
+                                else:
+                                    # 装飾なしの数字列パターンを予備サーチ
+                                    tel_match_fallback = re.search(r'\d{2,5}-\d{1,4}-\d{3,4}', body_text)
+                                    if tel_match_fallback:
+                                        tel_found = tel_match_fallback.group().strip()
+                            
+                            # ── 代表者名の精密抽出 ──
+                            if get_rep:
+                                # 日本の士業・法人の代表職の記述パターンを網羅（名前の前の不要な記号や空白を徹底カバー）
+                                rep_patterns = [
+                                    r'(?:代表取締役|代表社員|代表弁護士|代表税理士|代表司法書士|代表行政書士|所長|理事長|院長|代表|共同代表)[:：\s]*(?:氏名)?\s*([一-龠]{2,4})\s*([一-龠]{2,4})?',
+                                    r'([一-龠]{2,4})\s*([一-龠]{2,4})?\s*(?:代表取締役|代表社員|代表弁護士|代表税理士|所長|理事長)に就任'
+                                ]
+                                for pattern in rep_patterns:
+                                    rep_match = re.search(pattern, body_text)
+                                    if rep_match:
+                                        # 苗字と名前がスペースで分かれている場合も考慮して結合
+                                        last_name = rep_match.group(1)
+                                        first_name = rep_match.group(2) if rep_match.group(2) else ""
+                                        rep_found = (last_name + " " + first_name).strip()
+                                        break
+                        except:
+                            pass
+                    
+                    # ユーザーのチェック状態に関わらず、非選択項目は結合時に排除されるよう「選択されたものだけ」リストに詰める
                     if get_hp: hp_links.append(url_found)
                     if get_rep: representatives.append(rep_found)
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    time.sleep(1.2)
+                    time.sleep(1.0)
                 
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
