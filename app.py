@@ -119,7 +119,7 @@ with col1:
     get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
     get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
     st.markdown("---")
-    st.markdown("※ 上位モデル(1.5 Pro)に換装。安全のため4.5秒に1件のペースで精査します。")
+    st.markdown("※ Google検索エンジンの集約データを1.5 Proでダイレクトに精査します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -152,7 +152,8 @@ if uploaded_file is not None:
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            # Googleのボット検知を完璧に回避する最新UA偽装
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
             
             chrome_options.binary_location = "/usr/bin/chromium"
             service = Service(executable_path="/usr/bin/chromedriver")
@@ -160,7 +161,6 @@ if uploaded_file is not None:
             try:
                 driver = webdriver.Chrome(service=service, options=chrome_options)
                 driver.set_page_load_timeout(10)
-                driver.set_script_timeout(5)
                 driver.implicitly_wait(3)
             except Exception as e:
                 st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. CRITICAL_ERROR: {e}")
@@ -181,8 +181,9 @@ if uploaded_file is not None:
                     
                     status_text.markdown(f"`[AI PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
                     
-                    query = f"{office_name} {address}"
-                    search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+                    # 【戦略変更】検索キーワードに「代表」「TEL」を最初から組み込み、Googleの検索結果画面に情報を露出させる
+                    query = f"{office_name} {address} 代表 TEL"
+                    search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&hl=ja"
                     
                     url_found = "見つかりませんでした"
                     rep_found = "見つかりませんでした"
@@ -190,57 +191,34 @@ if uploaded_file is not None:
                     
                     try:
                         driver.get(search_url)
-                        WebDriverWait(driver, 3).until(
-                            EC.presence_of_element_located((By.CLASS_NAME, "result"))
+                        # Google検索結果コンテナの出現を待つ
+                        WebDriverWait(driver, 4).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "div.g, div.yuRUbf, #search"))
                         )
-                        search_results = driver.find_elements(By.CLASS_NAME, "result")
                         
-                        for result in search_results:
-                            class_attr = result.get_attribute("class")
-                            if "ad" in class_attr or "badge" in class_attr:
-                                continue
-                            try:
-                                link_element = result.find_element(By.CLASS_NAME, "result__a")
-                                raw_url = link_element.get_attribute("href")
-                                if "uddg=" in raw_url:
-                                    from urllib.parse import parse_qs, urlparse
-                                    parsed = urlparse(raw_url)
-                                    queries = parse_qs(parsed.query)
-                                    if 'uddg' in queries:
-                                        url_found = queries['uddg'][0]
-                                elif raw_url.startswith("http"):
-                                    url_found = raw_url
+                        # 1. ★【超高速＆確実化】個別HPへの移動を廃止し、Googleの検索結果テキストをそのまま丸ごと引っこ抜く！
+                        search_page_text = driver.find_element(By.TAG_NAME, "body").text
+                        
+                        # 2. HPリンクのURLだけは検索結果のAタグからスマートに抽出
+                        links = driver.find_elements(By.CSS_SELECTOR, "div.g a, div.yuRUbf a, a[data-ved]")
+                        for link in links:
+                            raw_url = link.get_attribute("href")
+                            if raw_url and raw_url.startswith("http") and not any(x in raw_url for x in ["google.com", "youtube.com", "twitter.com", "facebook.com", "instagram.com", "map.yahoo"]):
+                                url_found = raw_url
                                 break
-                            except:
-                                pass
-                    except:
-                        pass
-                    
-                    # 2. HPからAIスキャン
-                    if url_found != "見つかりませんでした" and (get_rep or get_tel):
-                        try:
-                            try:
-                                driver.get(url_found)
-                                time.sleep(1.5)
-                            except:
-                                pass
-                            
-                            # ★【大修正】バグの原因だった正規表現置換をすべて廃止。
-                            # Selenium標準の最も安全な文字抽出(innerText)のみを取得。これでテキスト破壊を防ぎます。
-                            clean_text = driver.execute_script("return document.body.innerText;")
-                            truncated_text = clean_text[:25000]
-                            
+                                
+                        # 3. ★【AI脳へ連携】Googleが要約したテキストから、代表名とTEL番号を完璧に推論させる
+                        if get_rep or get_tel:
                             prompt = f"""
-                            以下のウェブサイトのテキスト情報を読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して、指定のJSONフォーマットで出力してください。
+                            あなたはプロのデータ抽出AIです。提供されたGoogleの検索結果テキスト（スニペット情報）を分析し、ターゲットである「{office_name}」の「代表者名（個人の氏名のみ）」と「電話番号」を正確に特定してください。
 
-                            【超厳格ルール】
-                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
-                            ※「総合事務所」や「税理士法人」のような法人名・組織名・メニュー単語は、絶対に代表者名として抽出せず、人間の名前のみを抜き出してください。
-                            2. 電話番号は日本の正しい電話番号（例: 011-727-5303）を1つ特定してください。
-                            3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
+                            【抽出ルール】
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている人物の「氏名（漢字）」を特定してください。
+                            ※重要：法人名、組織名、地名、メニュー名（例: 総合事務所、税理士法人、経営理念、札幌など）は、絶対に名前に含めないでください。人間の名前がわからない場合は「見つかりませんでした」としてください。
+                            2. 電話番号は日本の正しい形式（例: 011-727-5303, 0120-951-761）を1つ特定してください。郵便番号やシリアルコードは除外してください。
 
-                            【対象Webサイトテキスト】
-                            {truncated_text}
+                            【対象のGoogle検索結果テキスト】
+                            {search_page_text[:15000]}
 
                             【出力フォーマット】
                             必ず以下の、キー名が半角英数字のJSON形式のみで返答してください。余計な説明文やマークダウン（```json など）は一切含めず、生データとしてパースできるようにしてください。
@@ -253,22 +231,22 @@ if uploaded_file is not None:
                             if ai_output.startswith("```"):
                                 ai_output = ai_output.replace("```json", "").replace("```", "").strip()
                             
+                            # 安全なJSON展開
                             data_json = json.loads(ai_output)
-                            
                             if get_rep:
                                 rep_found = data_json.get("representative", "見つかりませんでした")
                             if get_tel:
                                 tel_found = data_json.get("tel", "見つかりませんでした")
                                 
-                        except Exception as e:
-                            pass
+                    except Exception as e:
+                        pass
                     
                     if get_hp: hp_links.append(url_found)
                     if get_rep: representatives.append(rep_found)
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    time.sleep(4.5)
+                    time.sleep(4.5) # 無料枠のAPI制限を安全に回避するためのウエイト
                 
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
