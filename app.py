@@ -138,10 +138,12 @@ if uploaded_file is not None:
         if st.button("▶ EXECUTE AI EXTRACTION"):
             
             genai.configure(api_key=gemini_key)
-            # 検索の賢さが最上位のProモデルを使用
+            
+            # ★【エラーの修正箇所】
+            # SDKのバージョンアップに伴い、辞書型ではなく「文字列のリスト」で指定するのが現在の公式ルールです。
             model = genai.GenerativeModel(
                 model_name="gemini-1.5-pro",
-                tools=[{"google_search": {}}]  # Googleリアルタイム検索を公式に許可
+                tools=['google_search']  # これで正しくGoogleライブ検索機能がONになります
             )
             
             hp_links = []
@@ -186,7 +188,7 @@ if uploaded_file is not None:
                         response = model.generate_content(prompt)
                         ai_output = response.text.strip()
                         
-                        # ★【大改修】JSON解析をやめ、返ってきたテキストを1行ずつ安全にスキャンする
+                        # テキストを1行ずつ安全にスキャンして結果を割り当て
                         for line in ai_output.splitlines():
                             line_str = line.strip()
                             if line_str.startswith("URL:"):
