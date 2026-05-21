@@ -36,31 +36,35 @@ cyber_css = """
     .stMarkdown p, label, .stSlider p {
         color: #e2e8f0 !important;
     }
-    /* ★【修正】API KEY入力欄のラベル文字色を鮮やかに */
+    /* API KEY入力欄のラベル文字色を鮮やかに */
     div[data-testid="stTextInput"] label p {
         color: #00ffcc !important;
         font-weight: bold !important;
         text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
     }
-    /* ★【修正】API KEYの入力ボックス本体の背景と入力文字色 */
+    /* API KEYの入力ボックス本体の背景と入力文字色 */
     div[data-testid="stTextInput"] input {
         background-color: #1a1f26 !important;
         color: #ffffff !important;
         border: 1px solid #00ffcc !important;
     }
-    /* ★【修正】チェックボックスカードの文字色をハッキリした白に強制上書き */
+    
+    /* ───【最重要修正：チェックボックスカードの文字色完全固定】─── */
     div[data-testid="stCheckbox"] {
-        background-color: #1a1f26;
+        background-color: #1a1f26 !important;
         padding: 8px 15px;
         border-radius: 5px;
-        border: 1px solid #00ffcc;
+        border: 1px solid #00ffcc !important;
         box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
         margin-bottom: 5px;
     }
-    div[data-testid="stCheckbox"] label span p {
+    /* カプセル内にあるすべてのテキスト要素（子要素全て）の文字色を強制白に上書き */
+    div[data-testid="stCheckbox"] * {
         color: #ffffff !important;
         font-weight: bold !important;
     }
+    /* ──────────────────────────────────────────────────────── */
+
     /* ボタンをいかつくネオン化 */
     div.stButton > button:first-child {
         background-color: #ff0055 !important;
