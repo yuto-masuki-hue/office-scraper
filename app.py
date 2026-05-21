@@ -158,8 +158,8 @@ if uploaded_file is not None:
             
             try:
                 driver = webdriver.Chrome(service=service, options=chrome_options)
-                driver.set_page_load_timeout(10)
-                driver.implicitly_wait(3)
+                driver.set_page_load_timeout(12)
+                driver.implicitly_wait(4)
             except Exception as e:
                 st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. CRITICAL_ERROR: {e}")
                 st.stop()
@@ -186,7 +186,6 @@ if uploaded_file is not None:
                     rep_found = "見つかりませんでした"
                     tel_found = "見つかりませんでした"
                     
-                    # 1. 検索エンジンから公式HPのみを抽出 (紹介ポータルを強力に弾く)
                     try:
                         driver.get(search_url)
                         WebDriverWait(driver, 4).until(
@@ -211,7 +210,6 @@ if uploaded_file is not None:
                                         clean_url = queries['uddg'][0]
                                 
                                 if clean_url.startswith("http"):
-                                    # ポータル・ディレクトリードメインを無視
                                     if any(p in clean_url for p in [
                                         "kaikei-home.com", "ezeirisi.jp", "map.yahoo.co.jp", "zeiri4.com", 
                                         "google.com", "youtube.com", "twitter.com", "facebook.com", "instagram.com",
@@ -226,19 +224,19 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    # 2. 【階層深掘りハイブリッド】公式サイトから情報を凝縮抽出
+                    # 2. 【大改修】JavaScript経由でinnerTextを安全・確実に100%引き出す
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
-                            # ① まずトップページを開いて基本テキストを取得
                             try:
                                 driver.get(url_found)
-                                time.sleep(1.2)
+                                time.sleep(2.0) # 読み込み待ちを2秒に固定
                             except:
                                 pass
                             
-                            combined_text = f"--- TOP PAGE --- \n {driver.find_element(By.TAG_NAME, 'body').text} \n"
+                            # ★【修正】空文字バグを100%防ぐため、JavaScriptでブラウザ内部の全innerTextを強制ダンプ
+                            top_text = driver.execute_script("return document.body.innerText;")
+                            combined_text = f"--- TOP PAGE --- \n {top_text} \n"
                             
-                            # ② ページ内から「概要」「挨拶」等の下層ページリンクを自動スカウト
                             target_pages = []
                             links = driver.find_elements(By.TAG_NAME, "a")
                             for link in links:
@@ -251,21 +249,19 @@ if uploaded_file is not None:
                                 except:
                                     pass
                             
-                            # 重複を削り、最大3つの下層ページをさらに巡回してテキストをガッチャンコ結合
                             target_pages = list(dict.fromkeys(target_pages))[:3]
                             for page in target_pages:
                                 try:
                                     driver.get(page)
-                                    time.sleep(1.0)
-                                    page_text = driver.find_element(By.TAG_NAME, "body").text
-                                    combined_text += f"\n --- SUB PAGE ({page}) --- \n {page_text} \n"
+                                    time.sleep(1.5)
+                                    # 下層ページも同様にJavaScript経由で確実に文字を回収
+                                    sub_text = driver.execute_script("return document.body.innerText;")
+                                    combined_text += f"\n --- SUB PAGE ({page}) --- \n {sub_text} \n"
                                 except:
                                     pass
                             
-                            # トークン節約のための文字カット
                             truncated_text = combined_text[:30000]
                             
-                            # ③ 複数ページの文字情報をひとまとめにしてAIに超精密に推論させる
                             prompt = f"""
                             以下のウェブサイトから抽出された複数ページのテキスト情報（トップページおよび概要・挨拶等の下層ページ）を統合的に読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して指定の形式で出力してください。
 
@@ -279,7 +275,7 @@ if uploaded_file is not None:
                             {truncated_text}
 
                             【出力フォーマット】
-                            余計な前置きや説明は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
+                            余計な前置きや説明は一切省き、必ず以下の3行の箇取りの形「だけ」で回答してください。
                             URL: (無視してください)
                             NAME: (ここに代表者氏名)
                             TEL: (ここに電話番号)
@@ -288,7 +284,6 @@ if uploaded_file is not None:
                             response = model.generate_content(prompt)
                             ai_output = response.text.strip()
                             
-                            # 安全なテキスト回収
                             for line in ai_output.splitlines():
                                 line_str = line.strip()
                                 if line_str.startswith("NAME:"):
