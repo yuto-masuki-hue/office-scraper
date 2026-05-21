@@ -1,6 +1,7 @@
-import re
+import json
 import time
 import urllib.parse
+import google.generativeai as genai
 import pandas as pd
 import streamlit as st
 from selenium import webdriver
@@ -13,7 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 # =====================================================================
 # 0. いかついサイバーパンク・ダークUIのカスタム設定 (安全なHTML注入)
 # =====================================================================
-st.set_page_config(page_title="SYSTEM: INFO SCOPER v2.0", layout="wide")
+st.set_page_config(page_title="SYSTEM: AI SCOPER v3.0", layout="wide")
 
 cyber_css = """
 <style>
@@ -68,19 +69,21 @@ st.html(cyber_css)
 # =====================================================================
 # 1. UIパーツ配置
 # =====================================================================
-st.title("⚡ INFO EXTRACTOR // CORE_SYSTEM v2.0")
-st.write("TARGET SYSTEM: DATA INGESTION & INTELLIGENCE EXTRACTOR")
+st.title("⚡ AI INFO SCOPER // CORE_SYSTEM v3.0")
+st.write("TARGET SYSTEM: AI-POWERED INTELLIGENCE EXTRACTOR (Gemini 2.5 Flash)")
+
+# 画面にAPIキーの入力欄を設置（パスワード非表示モード）
+gemini_key = st.text_input("🔑 ENTER GEMINI API KEY", type="password", help="Google AI Studioで取得した無料のキーを入力してください")
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象の選択)")
+    st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象)")
     get_hp = st.checkbox("🔗 HPリンク (URL)", value=True)
-    get_rep = st.checkbox("👤 代表者名 (REPRESENTATIVE)", value=True)
-    get_tel = st.checkbox("📞 TEL番号 (TELEPHONE)", value=True)
-    
+    get_rep = st.checkbox("👤 代表者名 (AI 推論)", value=True)
+    get_tel = st.checkbox("📞 TEL番号 (AI 推論)", value=True)
     st.markdown("---")
-    st.markdown("※ 最低1つ以上のモジュールを有効化してください。")
+    st.markdown("※ 無料APIキーの制限を回避するため、4秒に1件のペースで安全に推論を回します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -95,13 +98,20 @@ if uploaded_file is not None:
     except UnicodeDecodeError:
         df = pd.read_csv(uploaded_file, encoding='shift_jis')
         
-    st.success("🤖 TARGET DATA LOADED SUCCESSFULLY.")
+    st.success("🤖 TARGET DATA LOADED.")
     st.dataframe(df.head(3))
 
-    if not (get_hp or get_rep or get_tel):
-        st.warning("⚠️ エラー: 少なくとも1つの抽出対象を選択してください。")
+    if not gemini_key and (get_rep or get_tel):
+        st.warning("⚠️ 処理を開始するには、上に GEMINI API KEY を入力してください。")
+    elif not (get_hp or get_rep or get_tel):
+        st.warning("⚠️ 少なくとも1つの抽出対象を選択してください。")
     else:
-        if st.button("▶ EXECUTE SYSTEM EXTRACTION"):
+        if st.button("▶ EXECUTE AI EXTRACTION"):
+            
+            # Gemini APIの初期化
+            genai.configure(api_key=gemini_key)
+            # 構造化データ（JSON）で返してもらうための最新最軽量モデル
+            model = genai.GenerativeModel("gemini-2.5-flash")
             
             chrome_options = Options()
             chrome_options.add_argument('--headless')
@@ -126,21 +136,15 @@ if uploaded_file is not None:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # 代表者名として誤認しやすい禁止単語リスト（ブラックリスト）
-            IGNORE_WORDS = [
-                "代表", "取締役", "社長", "所長", "弁護士", "税理士", "司法書士", "行政書士", "社労士", "医師", "院長", "理事", "理事長",
-                "挨拶", "あいさつ", "理念", "会社", "概要", "沿革", "アクセス", "案内", "組織", "スタッフ", "一覧", "紹介", "プロフィール",
-                "ページ", "ホーム", "サイト", "情報", "法人", " there ", "事務所", "総合", "合同", "執務", "弁護"
-            ]
-            
             try:
                 total_rows = len(df)
                 for index, row in df.iterrows():
                     office_name = row.iloc[0]
                     address = row.iloc[1]
                     
-                    status_text.markdown(f"`[PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
+                    status_text.markdown(f"`[AI PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
                     
+                    # 1. DuckDuckGoからHPのURLを探す
                     query = f"{office_name} {address}"
                     search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
                     
@@ -150,7 +154,7 @@ if uploaded_file is not None:
                     
                     try:
                         driver.get(search_url)
-                        WebDriverWait(driver, 5).until(
+                        WebDriverWait(driver, 3).until(
                             EC.presence_of_element_located((By.CLASS_NAME, "result"))
                         )
                         search_results = driver.find_elements(By.CLASS_NAME, "result")
@@ -159,7 +163,6 @@ if uploaded_file is not None:
                             class_attr = result.get_attribute("class")
                             if "ad" in class_attr or "badge" in class_attr:
                                 continue
-                            
                             try:
                                 link_element = result.find_element(By.CLASS_NAME, "result__a")
                                 raw_url = link_element.get_attribute("href")
@@ -177,73 +180,52 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    # 2. ターゲットサイトのディープスキャン（代表者検知MAX強化版）
+                    # 2. 【AI脳にスイッチ】HPの生HTMLをGeminiに投げて、文脈から代表名とTELを推論抽出
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
                             driver.get(url_found)
-                            time.sleep(2.0)
+                            time.sleep(1.2)
                             
-                            target_pages = [url_found]
+                            # ページの全テキスト（またはHTML）を一撃で取得
+                            raw_html = driver.execute_script("return document.body.innerText;")
+                            # 長すぎる場合のデータ削減（先頭3万文字に制限）
+                            truncated_text = raw_html[:30000]
                             
-                            links = driver.find_elements(By.TAG_NAME, "a")
-                            for link in links:
-                                try:
-                                    link_text = link.text.strip()
-                                    link_url = link.get_attribute("href")
-                                    if any(k in link_text for k in ["概要", "挨拶", "プロフィール", "紹介", "アクセス", "案内", "組織", "基本", "会社"]):
-                                        if link_url and link_url.startswith("http") and link_url not in target_pages:
-                                            target_pages.append(link_url)
-                                except:
-                                    pass
+                            # AIへの超精密な命令文（プロンプト）の作成
+                            prompt = f"""
+                            あなたは優秀なデータ抽出AIです。提供されたウェブサイトのテキスト情報を読み、この事務所や組織の「代表者名（個人の氏名のみ）」と「電話番号（固定電話や代表電話など）」を注意深く推論して見つけ出してください。
+
+                            【抽出ルール】
+                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」などの役職がついている人物の「氏名（漢字）」を特定してください。「総合事務所」や「税理士法人」のような組織名は絶対に名前に含めず、個人の名前のみを抽出してください。
+                            2. 電話番号は日本の正しい電話番号（例: 03-XXXX-XXXX, 0120-XXX-XXX）を1つ特定してください。郵便番号やシリアルコードは絶対に除外してください。
+                            3. 情報が見つからない場合は、必ず「見つかりませんでした」としてください。
+
+                            【対象テキスト】
+                            {truncated_text}
+
+                            【出力フォーマット】
+                            必ず以下の、キー名が半角英数字のJSON形式のみで返答してください。余計な説明文やマークダウン（```json など）は一切含めず、生データとしてパースできるようにしてください。
+                            {{"representative": "ここに代表者の氏名", "tel": "ここに電話番号"}}
+                            """
                             
-                            target_pages = list(dict.fromkeys(target_pages))[:4]
+                            # Geminiに送信して推論を実行
+                            response = model.generate_content(prompt)
+                            ai_output = response.text.strip()
                             
-                            for page in target_pages:
-                                if page != url_found:
-                                    driver.get(page)
-                                    time.sleep(1.5)
+                            # ```json や ``` などの余計な装飾が含まれている場合の除去ガード
+                            if ai_output.startswith("```"):
+                                ai_output = ai_output.replace("```json", "").replace("```", "").strip()
+                            
+                            # JSONとして解析してデータを綺麗に回収
+                            data_json = json.loads(ai_output)
+                            
+                            if get_rep:
+                                rep_found = data_json.get("representative", "見つかりませんでした")
+                            if get_tel:
+                                tel_found = data_json.get("tel", "見つかりませんでした")
                                 
-                                raw_html = driver.execute_script("return document.body.innerHTML;")
-                                clean_text = re.sub(r'<[^>]+>', ' ', raw_html)
-                                clean_text = re.sub(r'\s+', ' ', clean_text)
-                                
-                                # ── ① 電話番号の徹底抽出 ──
-                                if get_tel and tel_found == "見つかりませんでした":
-                                    tel_candidates = re.findall(r'\(?(\d{2,5})\)?[-ー\s]?(\d{1,4})[-ー\s]?(\d{3,4})', clean_text)
-                                    for part1, part2, part3 in tel_candidates:
-                                        full_digits = part1 + part2 + part3
-                                        if len(full_digits) in [10, 11]:
-                                            if part1.startswith('0'):
-                                                tel_found = f"{part1}-{part2}-{part3}"
-                                                break
-                                
-                                # ── ② 【大改修】代表者名の精密ピンポイント抽出 ──
-                                if get_rep and rep_found == "見つかりませんでした":
-                                    # 「代表役職名」から「最大20文字までの雑多な役職名や記号」を挟んで、後ろの漢字2〜4文字を狙う超強力パターン
-                                    rep_patterns = [
-                                        r'(?:代表取締役|代表社員|代表弁護士|代表税理士|代表司法書士|代表行政書士|理事長|院長|所長|共同代表|代\s*表)[\s\S]{0,20}?([一-龠]{2,4})\s*([一-龠]{2,4})?',
-                                        r'([一-龠]{2,4})\s*([一-龠]{2,4})?[\s\S]{0,10}?(?:代表取締役|代表社員|代表弁護士|代表税理士|所長|理事長|院長)'
-                                    ]
-                                    for pattern in rep_patterns:
-                                        # 1つのページから該当する箇所をすべて洗い出す
-                                        for match in re.finditer(pattern, clean_text):
-                                            last_name = match.group(1).strip()
-                                            first_name = match.group(2).strip() if match.group(2) else ""
-                                            full_name = last_name + first_name
-                                            
-                                            # 【文字数フィルター】
-                                            # 漢字が5文字以上連続する名詞（総合事務所、法律事務所など）は100%名前ではないので強烈に弾く
-                                            if len(full_name) >= 2 and len(full_name) <= 4:
-                                                if not any(word in full_name for word in IGNORE_WORDS):
-                                                    rep_found = f"{last_name} {first_name}".strip()
-                                                    break
-                                        if rep_found != "見つかりませんでした":
-                                            break
-                                                    
-                                if (not get_tel or tel_found != "見つかりませんでした") and (not get_rep or rep_found != "見つかりませんでした"):
-                                    break
-                                    
-                        except:
+                        except Exception as e:
+                            # パースエラー等のバックアップ
                             pass
                     
                     if get_hp: hp_links.append(url_found)
@@ -251,13 +233,15 @@ if uploaded_file is not None:
                     if get_tel: tel_numbers.append(tel_found)
                     
                     progress_bar.progress((index + 1) / total_rows)
-                    time.sleep(1.0)
+                    
+                    # 【超重要】Geminiの無料枠APIは「1分間に15回リクエスト」が上限なので、安全のため4秒待機
+                    time.sleep(4.0)
                 
                 if get_hp: df['HPリンク'] = hp_links
                 if get_rep: df['代表者名'] = representatives
                 if get_tel: df['TEL番号'] = tel_numbers
                 
-                status_text.markdown("### 🟢 EXTRACTION COMPLETE. OUTPUT GENERATED.")
+                status_text.markdown("### 🟢 EXTRACTION COMPLETE. OUTPUT GENERATED BY AI.")
                 st.dataframe(df)
                 
                 csv_string = df.to_csv(index=False, encoding='utf-8-sig')
