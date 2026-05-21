@@ -126,6 +126,13 @@ if uploaded_file is not None:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            # 代表者名として誤認しやすい禁止単語リスト（ブラックリスト）
+            IGNORE_WORDS = [
+                "代表", "取締役", "社長", "所長", "弁護士", "税理士", "司法書士", "行政書士", "社労士", "医師", "院長", "理事", "理事長",
+                "挨拶", "あいさつ", "理念", "会社", "概要", "沿革", "アクセス", "案内", "組織", "スタッフ", "一覧", "紹介", "プロフィール",
+                "ページ", "ホーム", "サイト", "情報", "法人", "組合", "業務", "内容", "料金", "費用", "相談", "予約", "お問い合せ", "問い合わせ"
+            ]
+            
             try:
                 total_rows = len(df)
                 for index, row in df.iterrows():
@@ -134,7 +141,6 @@ if uploaded_file is not None:
                     
                     status_text.markdown(f"`[PROCESSING] ({index+1}/{total_rows})` ── Target: **{office_name}**")
                     
-                    # 1. 検索エンジンから本物のHPリンク（URL）を抽出
                     query = f"{office_name} {address}"
                     search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
                     
@@ -171,15 +177,14 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    # 2. ターゲットサイトのディープスキャン（改修版）
+                    # 2. ターゲットサイトのディープスキャン（誤検知ブロック強化版）
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
                             driver.get(url_found)
-                            time.sleep(2.0)  # 遅延読み込み（JS対応）のため少し長めに待機
+                            time.sleep(2.0)
                             
                             target_pages = [url_found]
                             
-                            # 下層ページのリンクを全スキャン
                             links = driver.find_elements(By.TAG_NAME, "a")
                             for link in links:
                                 try:
@@ -191,49 +196,50 @@ if uploaded_file is not None:
                                 except:
                                     pass
                             
-                            target_pages = list(dict.fromkeys(target_pages))[:4] # 最大4ページまで追跡拡張
+                            target_pages = list(dict.fromkeys(target_pages))[:4]
                             
                             for page in target_pages:
                                 if page != url_found:
                                     driver.get(page)
-                                    time.sleep(1.5) # ページ遷移後もしっかり待機
+                                    time.sleep(1.5)
                                 
-                                # 【ココが重要】HTMLタグも含めた生データを引っぺがし、余分なHTMLコードだけHTMLタグ除去
                                 raw_html = driver.execute_script("return document.body.innerHTML;")
-                                # HTMLのタグを除去しつつ、改行やタブ、連続する空白を極限まで圧縮して1列のプレーンテキストにする
                                 clean_text = re.sub(r'<[^>]+>', ' ', raw_html)
                                 clean_text = re.sub(r'\s+', ' ', clean_text)
                                 
-                                # ── 電話番号の徹底抽出 ──
+                                # ── ① 電話番号の徹底抽出（日本の桁数制限フィルター） ──
                                 if get_tel and tel_found == "見つかりませんでした":
-                                    # 市外局番やハイフンのあらゆる組み合わせに対応
-                                    tel_match = re.search(r'(?:TEL|tel|電話番号|🕿|☎)?\s*[:：\s]*\(?(\d{2,5})\)?[-ー\s]?(\d{1,4})[-ー\s]?(\d{3,4})', clean_text)
-                                    if tel_match:
-                                        # 綺麗にハイフンで成形して格納
-                                        tel_found = f"{tel_match.group(1)}-{tel_match.group(2)}-{tel_match.group(3)}"
+                                    # ハイフンやスペースを含むパターンで一旦広めに検索
+                                    tel_candidates = re.findall(r'\(?(\d{2,5})\)?[-ー\s]?(\d{1,4})[-ー\s]?(\d{3,4})', clean_text)
+                                    for part1, part2, part3 in tel_candidates:
+                                        full_digits = part1 + part2 + part3
+                                        # 日本の国内電話番号は、総桁数が「10桁」または「11桁」に限定されます
+                                        if len(full_digits) in [10, 11]:
+                                            # 特定の不正番号（10030...など）や郵便番号、携帯の誤検知を弾くため、最初の桁が0で始まるものに限定
+                                            if part1.startswith('0'):
+                                                tel_found = f"{part1}-{part2}-{part3}"
+                                                break
                                 
-                                # ── 代表者名の徹底抽出 ──
+                                # ── ② 代表者名の徹底抽出（役職・メニュー名除外フィルター） ──
                                 if get_rep and rep_found == "見つかりませんでした":
-                                    # 改行やスペースが圧縮されたテキストに対して機能する、最新の正規表現パターン
                                     rep_patterns = [
-                                        r'(?:代表取締役|代表社員|代表弁護士|代表税理士|代表司法書士|代表行政書士|所長|理事長|院長|代表|共同代表)\s*[:：]?\s*([一-龠]{2,4})\s*([一-龠]{2,4})?',
-                                        r'([一-龠]{2,4})\s*([一-龠]{2,4})?\s*(?:代表取締役|代表社員|代表弁護士|代表税理士|所長|理事長|院長)',
-                                        r'(?:代表者|氏名|名\s*前)\s*[:：]?\s*([一-龠]{2,4})\s*([一-龠]{2,4})?'
+                                        r'(?:代表取締役|代表社員|代表弁護士|代表税理士|代表司法書士|代表行政書士|所長|理事長|院長|共同代表|代\s*表)\s*[:：]?\s*([一-龠]{2,4})\s*([一-龠]{2,4})?',
+                                        r'([一-龠]{2,4})\s*([一-龠]{2,4})?\s*(?:代表取締役|代表社員|代表弁護士|代表税理士|所長|理事長|院長)'
                                     ]
                                     for pattern in rep_patterns:
                                         rep_match = re.search(pattern, clean_text)
                                         if rep_match:
-                                            last_name = rep_match.group(1)
-                                            # 苗字と名前の間のスペースを埋める
-                                            first_name = rep_match.group(2) if rep_match.group(2) else ""
-                                            full_name = (last_name + first_name).strip()
+                                            last_name = rep_match.group(1).strip()
+                                            first_name = rep_match.group(2).strip() if rep_match.group(2) else ""
+                                            full_name = last_name + first_name
                                             
-                                            # 役職名自体を誤検知（例: 代表取締役 所長 のような連続）するのを防ぐガード
-                                            if full_name not in ["代表取締役", "代表社員", "代表弁護士", "代表税理士", "所長", "理事長", "院長"]:
-                                                rep_found = full_name
-                                                break
-                                                
-                                # 情報が揃ったらこの事務所の巡回は終了
+                                            # 抽出された文字列にブラックリスト単語が「含まれていない」か、
+                                            # かつ名前の長さとして適切（2文字〜8文字）かを厳格にジャッジ
+                                            if len(full_name) >= 2 and len(full_name) <= 8:
+                                                if not any(word in full_name for word in IGNORE_WORDS):
+                                                    rep_found = f"{last_name} {first_name}".strip()
+                                                    break
+                                                    
                                 if (not get_tel or tel_found != "見つかりませんでした") and (not get_rep or rep_found != "見つかりませんでした"):
                                     break
                                     
