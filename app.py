@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 # =====================================================================
 # 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー (CSS)
 # =====================================================================
-st.set_page_config(page_title="SYSTEM: AI SCOPER v5.5", layout="wide")
+st.set_page_config(page_title="SYSTEM: AI SCOPER v6.1", layout="wide")
 
 cyber_css = """
 <style>
@@ -99,8 +99,8 @@ st.html(cyber_css)
 # =====================================================================
 header_html = """
 <div class="sticky-header">
-    <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v5.5</h1>
-    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: GOOGLE SNIPPET HARVESTER & AI INFERENCE ENGINE</p>
+    <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v6.1</h1>
+    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: HYBRID DEEP REVERSE SCAPER ENGINE (Gemini 1.5 Pro)</p>
 </div>
 """
 st.html(header_html)
@@ -114,11 +114,13 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象の選択)")
-    get_office = st.checkbox("🏢 所属事務所名（名前から推測）", value=True)
+    # ★【修正：HPリンクの選択肢を最上部に完全マウント】
+    get_hp = st.checkbox("🔗 HPリンク (URLを抽出して記録)", value=True)
+    get_office = st.checkbox("🏢 所属事務所名（AI 逆引き特定）", value=True)
     get_rep = st.checkbox("👤 代表者名（確認・突合）", value=True)
-    get_tel = st.checkbox("📞 TEL番号（検索画面から抽出）", value=True)
+    get_tel = st.checkbox("📞 TEL番号（HP内から抽出）", value=True)
     st.markdown("---")
-    st.markdown("※ Googleの『〇〇です』という検索結果テキストの塊をAIにダイレクト流し込み精査します。")
+    st.markdown("※ 検索エンジンから公式サイトのURL（HPリンク）を特定し、さらにそのページ内部をAIが精査します。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -160,6 +162,7 @@ if uploaded_file is not None:
         secondary_search_col = st.selectbox("第二検索ソース（例：住所や地域が入った列）", options=secondary_options, index=min(1, len(secondary_options)-1))
 
     # 出力列マウント
+    if get_hp and 'HPリンク' not in df.columns: df['HPリンク'] = "未処理"
     if get_office and '所属事務所名' not in df.columns: df['所属事務所名'] = "未処理"
     if get_rep and '代表者名' not in df.columns: df['代表者名'] = "未処理"
     if get_tel and 'TEL番号' not in df.columns: df['TEL番号'] = "未処理"
@@ -181,10 +184,10 @@ if uploaded_file is not None:
 
     if not gemini_key:
         st.warning("⚠️ 処理を開始するには、上に GEMINI API KEY を入力してください。")
-    elif not (get_office or get_rep or get_tel):
+    elif not (get_hp or get_office or get_rep or get_tel):
         st.warning("⚠️ 少なくとも1つの抽出対象を選択してください。")
     else:
-        if st.button("▶ EXECUTE GOOGLE-SNIPPET AI EXTRACTION"):
+        if st.button("▶ EXECUTE SMART HYBRID EXTRACTION"):
             
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel(model_name="gemini-1.5-pro")
@@ -194,15 +197,15 @@ if uploaded_file is not None:
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
             
             chrome_options.binary_location = "/usr/bin/chromium"
             service = Service(executable_path="/usr/bin/chromedriver")
             
             try:
                 driver = webdriver.Chrome(service=service, options=chrome_options)
-                driver.set_page_load_timeout(10)
-                driver.implicitly_wait(3)
+                driver.set_page_load_timeout(12)
+                driver.implicitly_wait(4)
             except Exception as e:
                 st.error(f"SYSTEM_CRITICAL: ブラウザ起動失敗. {e}")
                 st.stop()
@@ -217,66 +220,134 @@ if uploaded_file is not None:
                     val1 = str(row[primary_search_col]).strip()
                     val2 = str(row[secondary_search_col]).strip() if secondary_search_col != "(使用しない)" else ""
                     
-                    # 検索ワードの組み立て
-                    search_keyword = f"{val1} {val2} 事務所 TEL".strip()
+                    search_keyword = f"{val1} {val2}".strip()
+                    status_text.markdown(f"`[DEEP SEARCHING] ({loop_idx+1}/{total_sub_rows})` ── 行No.{index+1}: **{search_keyword}**")
                     
-                    status_text.markdown(f"`[GOOGLE SNIPPET SCOPE] ({loop_idx+1}/{total_sub_rows})` ── 行No.{index+1}: **{val1}**")
+                    # 安全な検索エンジン(DuckDuckGo)で本物の公式サイトだけを検出
+                    search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(search_keyword)}"
                     
-                    search_url = f"https://www.google.com/search?q={urllib.parse.quote(search_keyword)}&hl=ja"
-                    
+                    url_found = "見つかりませんでした"
                     office_found = "見つかりませんでした"
                     rep_found = "見つかりませんでした"
                     tel_found = "見つかりませんでした"
                     
                     try:
                         driver.get(search_url)
-                        
-                        # ★【大改修：要素判定バグ修正】
-                        # Googleの検索コンテナ（#search もしくはメインボディ）が出現するまで待機
-                        WebDriverWait(driver, 5).until(
-                            EC.presence_of_element_located((By.CSS_SELECTOR, "#search, body"))
+                        WebDriverWait(driver, 4).until(
+                            EC.presence_of_element_located((By.CLASS_NAME, "result"))
                         )
-                        time.sleep(1.5)
+                        search_results = driver.find_elements(By.CLASS_NAME, "result")
                         
-                        # Google検索結果画面のinnerTextを完全にダンプ
-                        google_page_text = driver.execute_script("return document.body.innerText;")
-                        
-                        # AIに読ませて精査
-                        prompt = f"""
-                        あなたは優秀なデータ抽出AIです。提供された「Googleの検索結果画面のテキスト（スニペットやナレッジパネルの塊）」を注意深く分析し、ターゲットである「{val1}」に関する情報を正確に特定してください。
-
-                        【超厳格ルール】
-                        1. [OFFICE] この人物（{val1}）が経営している、または所属している「正式な事務所名・法人名（例：税理士法人〇〇、〇〇法律事務所など）」を特定してください。
-                        2. [NAME] 組織のトップ（所長、代表、院長など）の名前（漢字）を特定してください。
-                        3. [TEL] 日本の正しい形式の電話番号（例：03-XXXX-XXXX）を1つ特定してください。
-                        4. 検索結果に該当データがない場合は、絶対に嘘（ハルシネーション）はつかず「見つかりませんでした」としてください。
-
-                        【対象のGoogle検索結果画面テキスト】
-                        {google_page_text[:20000]}
-
-                        【出力フォーマット】
-                        余計な前置きや説明文は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
-                        OFFICE: (ここに所属事務所名)
-                        NAME: (ここに代表者氏名)
-                        TEL: (ここに電話番号)
-                        """
-                        
-                        response = model.generate_content(prompt)
-                        ai_output = response.text.strip()
-                        
-                        for line in ai_output.splitlines():
-                            line_str = line.strip()
-                            if line_str.startswith("OFFICE:"):
-                                office_found = line_str.replace("OFFICE:", "").strip()
-                            elif line_str.startswith("NAME:"):
-                                rep_found = line_str.replace("NAME:", "").strip()
-                            elif line_str.startswith("TEL:"):
-                                tel_found = line_str.replace("TEL:", "").strip()
+                        for result in search_results:
+                            class_attr = result.get_attribute("class")
+                            if "ad" in class_attr or "badge" in class_attr:
+                                continue
+                            try:
+                                link_element = result.find_element(By.CLASS_NAME, "result__a")
+                                raw_url = link_element.get_attribute("href")
                                 
-                    except Exception as e:
+                                clean_url = raw_url
+                                if "uddg=" in raw_url:
+                                    from urllib.parse import parse_qs, urlparse
+                                    parsed = urlparse(raw_url)
+                                    queries = parse_qs(parsed.query)
+                                    if 'uddg' in queries:
+                                        clean_url = queries['uddg'][0]
+                                
+                                if clean_url.startswith("http"):
+                                    # ポータルサイトを完全に弾く
+                                    if any(p in clean_url for p in [
+                                        "kaikei-home.com", "ezeirisi.jp", "map.yahoo.co.jp", "zeiri4.com", 
+                                        "google.com", "youtube.com", "twitter.com", "facebook.com", "instagram.com",
+                                        "houjin.jp", "i-sozoku.com", "mapion.co.jp"
+                                    ]):
+                                        continue
+                                        
+                                    url_found = clean_url
+                                    break
+                            except:
+                                pass
+                    except:
                         pass
                     
+                    # 2. 割り出した本物の公式サイトの「内部テキスト」を安全に回収してAI推論
+                    if url_found != "見つかりませんでした" and (get_office or get_rep or get_tel):
+                        try:
+                            try:
+                                driver.get(url_found)
+                                time.sleep(2.0)
+                            except:
+                                pass
+                            
+                            # JavaScript経由でトップページのテキストを完全ダンプ
+                            top_text = driver.execute_script("return document.body.innerText;")
+                            combined_text = f"--- TOP PAGE --- \n {top_text} \n"
+                            
+                            # メニューリンク（下層ページ）のスカウト巡回
+                            target_pages = []
+                            links = driver.find_elements(By.TAG_NAME, "a")
+                            for link in links:
+                                try:
+                                    link_text = link.text.strip()
+                                    link_url = link.get_attribute("href")
+                                    if any(k in link_text for k in ["概要", "挨拶", "プロフィール", "紹介", "アクセス", "案内", "組織", "基本", "会社"]):
+                                        if link_url and link_url.startswith("http") and link_url != url_found:
+                                            target_pages.append(link_url)
+                                except:
+                                    pass
+                            
+                            # 最大3ページ巡回してテキストをガッチャンコ結合
+                            target_pages = list(dict.fromkeys(target_pages))[:3]
+                            for page in target_pages:
+                                try:
+                                    driver.get(page)
+                                    time.sleep(1.5)
+                                    sub_text = driver.execute_script("return document.body.innerText;")
+                                    combined_text += f"\n --- SUB PAGE ({page}) --- \n {sub_text} \n"
+                                except:
+                                    pass
+                            
+                            truncated_text = combined_text[:30000]
+                            
+                            # プロンプト：HP全体の文字情報から事務所名・役職者を特定
+                            prompt = f"""
+                            以下のウェブサイトから抽出されたテキスト情報を統合的に読み解き、指定された情報を特定して箇条書きの形式のみで出力してください。
+
+                            手がかりキーワード: {search_keyword}
+
+                            【超厳格抽出ルール】
+                            1. [OFFICE] このWebサイトを運営している正式な「事務所名・法人名（例：税理士法人〇〇、〇〇法律事務所など）」をテキスト内から確実に見つけ出してください。
+                            2. [NAME] 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」などの役職がついている人物の「個人の氏名（漢字）」を特定してください（組織名は不可）。
+                            3. [TEL] 電話番号は日本の正しい形式（例：011-727-5303）を1つ特定してください。
+                            4. 情報がどこにも見当たらない項目は「見つかりませんでした」としてください。
+
+                            【対象Webサイト統合テキスト】
+                            {truncated_text}
+
+                            【出力フォーマット】
+                            余計な前置きや説明文は一切省き、必ず以下の3行の箇取りの形「だけ」で回答してください。
+                            OFFICE: (ここに所属事務所名)
+                            NAME: (ここに代表者氏名)
+                            TEL: (ここに電話番号)
+                            """
+                            
+                            response = model.generate_content(prompt)
+                            ai_output = response.text.strip()
+                            
+                            for line in ai_output.splitlines():
+                                line_str = line.strip()
+                                if line_str.startswith("OFFICE:"):
+                                    office_found = line_str.replace("OFFICE:", "").strip()
+                                elif line_str.startswith("NAME:"):
+                                    rep_found = line_str.replace("NAME:", "").strip()
+                                elif line_str.startswith("TEL:"):
+                                    tel_found = line_str.replace("TEL:", "").strip()
+                                
+                        except Exception as e:
+                            pass
+                    
                     # セルへリアルタイム書き込み
+                    if get_hp: df.at[index, 'HPリンク'] = url_found
                     if get_office: df.at[index, '所属事務所名'] = office_found
                     if get_rep: df.at[index, '代表者名'] = rep_found
                     if get_tel: df.at[index, 'TEL番号'] = tel_found
@@ -293,7 +364,7 @@ if uploaded_file is not None:
                 st.download_button(
                     label="⚡ DOWNLOAD FULL/INTEGRATED CSV PACK",
                     data=final_csv_bytes,
-                    file_name="scoper_google_snippet_extracted.csv",
+                    file_name="scoper_deep_extracted.csv",
                     mime="text/csv",
                     key="final_btn"
                 )
