@@ -129,12 +129,26 @@ with col2:
 # 3. メインロジック
 # =====================================================================
 if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file, encoding='utf-8')
-    except UnicodeDecodeError:
-        # ★【修正箇所】エラー時にファイルの読み込み位置を先頭(0)にリセットする処理を追加
-        uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, encoding='shift_jis')
+    # ★【大改修】どんな酷い文字コードのCSVが来ても絶対にクラッシュさせない多重読み込みガード
+    df = None
+    encodings_to_try = ['utf-8-sig', 'utf-8', 'cp932', 'shift_jis']
+    
+    for enc in encodings_to_try:
+        try:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, encoding=enc)
+            break  # 読み込みに成功したらループを抜ける
+        except Exception:
+            continue
+            
+    # 全滅した場合の最終手段：エラーになる文字を強制的に無視（スキップ）して何が何でも開く
+    if df is None:
+        try:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, encoding='cp932', errors='ignore')
+        except Exception as csv_e:
+            st.error(f"SYSTEM_CRITICAL: CSVデコード完全失敗。ファイルを修復してください: {csv_e}")
+            st.stop()
         
     st.success("🤖 TARGET DATA LOADED.")
     st.dataframe(df.head(3))
