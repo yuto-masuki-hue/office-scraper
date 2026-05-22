@@ -1,3 +1,4 @@
+import json
 import time
 import urllib.parse
 import google.generativeai as genai
@@ -131,6 +132,8 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file, encoding='utf-8')
     except UnicodeDecodeError:
+        # ★【修正箇所】エラー時にファイルの読み込み位置を先頭(0)にリセットする処理を追加
+        uploaded_file.seek(0)
         df = pd.read_csv(uploaded_file, encoding='shift_jis')
         
     st.success("🤖 TARGET DATA LOADED.")
@@ -224,16 +227,14 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    # 2. 【大改修】JavaScript経由でinnerTextを安全・確実に100%引き出す
                     if url_found != "見つかりませんでした" and (get_rep or get_tel):
                         try:
                             try:
                                 driver.get(url_found)
-                                time.sleep(2.0) # 読み込み待ちを2秒に固定
+                                time.sleep(2.0)
                             except:
                                 pass
                             
-                            # ★【修正】空文字バグを100%防ぐため、JavaScriptでブラウザ内部の全innerTextを強制ダンプ
                             top_text = driver.execute_script("return document.body.innerText;")
                             combined_text = f"--- TOP PAGE --- \n {top_text} \n"
                             
@@ -254,7 +255,6 @@ if uploaded_file is not None:
                                 try:
                                     driver.get(page)
                                     time.sleep(1.5)
-                                    # 下層ページも同様にJavaScript経由で確実に文字を回収
                                     sub_text = driver.execute_script("return document.body.innerText;")
                                     combined_text += f"\n --- SUB PAGE ({page}) --- \n {sub_text} \n"
                                 except:
@@ -275,7 +275,7 @@ if uploaded_file is not None:
                             {truncated_text}
 
                             【出力フォーマット】
-                            余計な前置きや説明は一切省き、必ず以下の3行の箇取りの形「だけ」で回答してください。
+                            余計な前置きや説明は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
                             URL: (無視してください)
                             NAME: (ここに代表者氏名)
                             TEL: (ここに電話番号)
