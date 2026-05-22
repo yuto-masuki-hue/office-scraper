@@ -194,7 +194,6 @@ if uploaded_file is not None:
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
-            # Googleのボットチェックを完全に回避するモダンMac仕様のUA
             chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
             
             chrome_options.binary_location = "/usr/bin/chromium"
@@ -218,12 +217,11 @@ if uploaded_file is not None:
                     val1 = str(row[primary_search_col]).strip()
                     val2 = str(row[secondary_search_col]).strip() if secondary_search_col != "(使用しない)" else ""
                     
-                    # 検索ワードの組み立て（事務所やTELがスニペットに出やすくなるようにチューニング）
+                    # 検索ワードの組み立て
                     search_keyword = f"{val1} {val2} 事務所 TEL".strip()
                     
                     status_text.markdown(f"`[GOOGLE SNIPPET SCOPE] ({loop_idx+1}/{total_sub_rows})` ── 行No.{index+1}: **{val1}**")
                     
-                    # 規制を完璧に回避するためにGoogle公式の言語固定クエリでアプローチ
                     search_url = f"https://www.google.com/search?q={urllib.parse.quote(search_keyword)}&hl=ja"
                     
                     office_found = "見つかりませんでした"
@@ -232,14 +230,18 @@ if uploaded_file is not None:
                     
                     try:
                         driver.get(search_url)
-                        time.sleep(2.0) # Googleの検索描画を少し待つ
                         
-                        # ★【核心大改造】
-                        # 個別サイトに飛ぶのをやめ、Google検索結果の画面全体（『〇〇です』の部分を含む）のテキストを、
-                        # 最もバグが起きないJavaScriptのinnerText経由で一括回収！
+                        # ★【大改修：要素判定バグ修正】
+                        # Googleの検索コンテナ（#search もしくはメインボディ）が出現するまで待機
+                        WebDriverWait(driver, 5).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "#search, body"))
+                        )
+                        time.sleep(1.5)
+                        
+                        # Google検索結果画面のinnerTextを完全にダンプ
                         google_page_text = driver.execute_script("return document.body.innerText;")
                         
-                        # AIにこの検索結果画面の文章をダイレクトに読ませて精査させる
+                        # AIに読ませて精査
                         prompt = f"""
                         あなたは優秀なデータ抽出AIです。提供された「Googleの検索結果画面のテキスト（スニペットやナレッジパネルの塊）」を注意深く分析し、ターゲットである「{val1}」に関する情報を正確に特定してください。
 
@@ -262,7 +264,6 @@ if uploaded_file is not None:
                         response = model.generate_content(prompt)
                         ai_output = response.text.strip()
                         
-                        # 箇条書きを1行ずつ安全にスキャンして変数にマッピング
                         for line in ai_output.splitlines():
                             line_str = line.strip()
                             if line_str.startswith("OFFICE:"):
@@ -275,16 +276,15 @@ if uploaded_file is not None:
                     except Exception as e:
                         pass
                     
-                    # 該当セルへ超リアルタイム上書き
+                    # セルへリアルタイム書き込み
                     if get_office: df.at[index, '所属事務所名'] = office_found
                     if get_rep: df.at[index, '代表者名'] = rep_found
                     if get_tel: df.at[index, 'TEL番号'] = tel_found
                     
-                    # プレビュー表をその場で書き換え更新
+                    # プレビュー上書き更新
                     preview_table_holder.dataframe(df.iloc[start_row-1:end_row])
                     progress_bar.progress((loop_idx + 1) / total_sub_rows)
                     
-                    # Googleの連続アクセス規制を完全に煙に巻くための安全ウエイト（4.5秒）
                     time.sleep(4.5)
                 
                 status_text.markdown(f"### 🟢 RANGE ({start_row} - {end_row}) COMPLETE. DATA INTEGRATED.")
