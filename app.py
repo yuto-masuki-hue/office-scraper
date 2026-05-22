@@ -14,7 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 # =====================================================================
 # 0. いかついサイバーパンク・ダークUI & 上部固定ヘッダー (CSS)
 # =====================================================================
-st.set_page_config(page_title="SYSTEM: AI SCOPER v4.0", layout="wide")
+st.set_page_config(page_title="SYSTEM: AI SCOPER v4.5", layout="wide")
 
 cyber_css = """
 <style>
@@ -48,7 +48,7 @@ cyber_css = """
     .stMarkdown p, label, .stSlider p {
         color: #e2e8f0 !important;
     }
-    div[data-testid="stTextInput"] label p {
+    div[data-testid="stTextInput"] label p, div[data-testid="stSelectbox"] label p {
         color: #00ffcc !important;
         font-weight: bold !important;
         text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
@@ -100,8 +100,8 @@ st.html(cyber_css)
 # =====================================================================
 header_html = """
 <div class="sticky-header">
-    <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v4.0</h1>
-    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: HYBRID DEEP AI SCRAPER ENGINE (Gemini 1.5 Pro)</p>
+    <h1>⚡ AI INFO SCOPER // CORE_SYSTEM v4.5</h1>
+    <p style="color: #8fa0b0 !important; margin: 8px 0 0 0 !important; font-size: 0.9rem;">TARGET SYSTEM: HYBRID DEEP AI SCRAPER & REVERSE INTELLIGENCE ENGINE</p>
 </div>
 """
 st.html(header_html)
@@ -114,12 +114,13 @@ gemini_key = st.text_input("🔑 ENTER GEMINI API KEY", type="password", help="G
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象)")
+    st.markdown("### 🛠️ EXTRACT TARGETS (抽出対象の選択)")
     get_hp = st.checkbox("🔗 HPリンク (URL)", value=True)
-    get_rep = st.checkbox("👤 代表者名 (AI 階層巡回)", value=True)
-    get_tel = st.checkbox("📞 TEL番号 (AI 階層巡回)", value=True)
+    get_office = st.checkbox("🏢 所属事務所名 (名前から推測)", value=False)
+    get_rep = st.checkbox("👤 代表者名 (HP内から巡回)", value=True)
+    get_tel = st.checkbox("📞 TEL番号 (HP内から巡回)", value=True)
     st.markdown("---")
-    st.markdown("※ 大量リスト処理時は、サーバー保護のため300件ずつの小分け実行を強く推奨します。")
+    st.markdown("※ 分割処理・プレビュー自動上書きシステム稼働中。")
 
 with col2:
     st.markdown("### 📥 INGEST FILE (CSVファイル入力)")
@@ -150,8 +151,21 @@ if uploaded_file is not None:
         
     st.success("🤖 TARGET DATA LOADED.")
     
-    # 既存の列がない場合は初期化（未処理としてマウント）
+    # ★【新機能】どの列を検索キーワードとして使うかの動的セレクター
+    csv_columns = list(df.columns)
+    st.markdown("### 🔍 SEARCH SOURCE SETTING (検索ソース列の指定)")
+    
+    col_src1, col_src2 = st.columns(2)
+    with col_src1:
+        primary_search_col = st.selectbox("第一検索ソース（事務所名、または個人名などが入った列）", options=csv_columns, index=0)
+    with col_src2:
+        # 住所列がない単一キーワード検索の場合を考慮し「使用しない」の選択肢を用意
+        secondary_options = ["(使用しない)"] + csv_columns
+        secondary_search_col = st.selectbox("第二検索ソース（住所や地域などの掛け合わせ列）", options=secondary_options, index=min(1, len(secondary_options)-1))
+
+    # 新規出力列の初期化マウント
     if get_hp and 'HPリンク' not in df.columns: df['HPリンク'] = "未処理"
+    if get_office and '所属事務所名' not in df.columns: df['所属事務所名'] = "未処理"
     if get_rep and '代表者名' not in df.columns: df['代表者名'] = "未処理"
     if get_tel and 'TEL番号' not in df.columns: df['TEL番号'] = "未処理"
     
@@ -166,21 +180,16 @@ if uploaded_file is not None:
         step=1
     )
     
-    st.write(f"選択された範囲: **{start_row}件目 〜 {end_row}件目**")
-    
-    # ★ リアルタイム更新用のプレビュー枠・進捗枠を事前に固定配置
     status_text = st.empty()
     progress_bar = st.progress(0)
     
     st.markdown("### 📊 LIVE DATA PREVIEW (リアルタイム更新中)")
-    preview_table_holder = st.empty() # ここに随時上書きされた表をブチ込みます
-    
-    # ボタンが押される前の初期プレビュー表示
+    preview_table_holder = st.empty()
     preview_table_holder.dataframe(df.iloc[start_row-1:end_row])
 
     if not gemini_key:
         st.warning("⚠️ 処理を開始するには、上に GEMINI API KEY を入力してください。")
-    elif not (get_hp or get_rep or get_tel):
+    elif not (get_hp or get_office or get_rep or get_tel):
         st.warning("⚠️ 少なくとも1つの抽出対象を選択してください。")
     else:
         if st.button("▶ EXECUTE AI EXTRACTION"):
@@ -212,18 +221,24 @@ if uploaded_file is not None:
                 
                 for loop_idx, index in enumerate(sub_range):
                     row = df.iloc[index]
-                    office_name = row.iloc[0]
-                    address = row.iloc[1]
                     
-                    status_text.markdown(f"`[PROCESSING] ({loop_idx+1}/{total_sub_rows})` ── 全体No.{index+1}: **{office_name}**")
+                    # ★【指定された列の値】をもとに検索キーワードを動的に合体
+                    val1 = str(row[primary_search_col]).strip()
+                    val2 = str(row[secondary_search_col]).strip() if secondary_search_col != "(使用しない)" else ""
                     
-                    query = f"{office_name} {address}"
+                    search_keyword = f"{val1} {val2}".strip()
+                    
+                    status_text.markdown(f"`[PROCESSING] ({loop_idx+1}/{total_sub_rows})` ── 全体No.{index+1}: **{search_keyword}**")
+                    
+                    query = search_keyword
                     search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
                     
                     url_found = "見つかりませんでした"
+                    office_found = "見つかりませんでした"
                     rep_found = "見つかりませんでした"
                     tel_found = "見つかりませんでした"
                     
+                    # 1. 検索エンジンから本物の公式HPのみをスカウト
                     try:
                         driver.get(search_url)
                         WebDriverWait(driver, 4).until(
@@ -262,7 +277,8 @@ if uploaded_file is not None:
                     except:
                         pass
                     
-                    if url_found != "見つかりませんでした" and (get_rep or get_tel):
+                    # 2. 階層深掘りテキスト抽出 & AI複合推論
+                    if url_found != "見つかりませんでした" and (get_office or get_rep or get_tel):
                         try:
                             try:
                                 driver.get(url_found)
@@ -297,21 +313,25 @@ if uploaded_file is not None:
                             
                             truncated_text = combined_text[:30000]
                             
+                            # プロンプト：事務所名の逆引き推測ルールを追加
                             prompt = f"""
-                            以下のウェブサイトから抽出された複数ページのテキスト情報（トップページおよび概要・挨拶等の下層ページ）を統合的に読み解き、この組織の「代表者名（個人の氏名のみ）」と「電話番号」を特定して指定の形式で出力してください。
+                            以下のウェブサイトから抽出された複数ページのテキスト情報を統合的に読み解き、指定された情報を特定して箇条書きの形式のみで出力してください。
 
-                            【超厳格ルール】
-                            1. 「代表取締役」「所長」「代表税理士」「代表弁護士」「院長」「理事長」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
-                            ※「総合事務所」や「税理士法人」のような法人名・組織名・メニュー単語は、絶対に代表者名として出力せず、人間の名前のみを抜き出してください。
-                            2. 電話番号は日本の正しい形式（例: 011-727-5303）を1つ特定してください。
-                            3. 情報がどこにも見当たらない場合のみ、「見つかりませんでした」としてください。
+                            検索のヒント・手がかりとなったキーワード: {search_keyword}
+
+                            【超厳格抽出ルール】
+                            1. [OFFICE] このサイトを運営している、またはキーワードの人物が所属している「正式な事務所名・法人名（例: 税理士法人エルム会計、〇〇法律事務所など）」を特定してください。
+                            2. [NAME] 「代表取締役」「所長」「代表税理士」「代表弁護士」などの役職がついている、組織のトップである人物の「個人の氏名（漢字）」を特定してください。
+                            ※会社名や単語（例: 総合事務所、経営理念など）は、絶対にNAME（代表者名）として出力せず、人間の名前のみを抜き出してください。
+                            3. [TEL] 電話番号は日本の正しい形式（例: 011-727-5303）を1つ特定してください。
+                            4. 情報がどこにも見当たらない項目は「見つかりませんでした」としてください。
 
                             【対象Webサイト統合テキスト】
                             {truncated_text}
 
                             【出力フォーマット】
                             余計な前置きや説明は一切省き、必ず以下の3行の箇条書きの形「だけ」で回答してください。
-                            URL: (無視してください)
+                            OFFICE: (ここに所属事務所名・法人名)
                             NAME: (ここに代表者氏名)
                             TEL: (ここに電話番号)
                             """
@@ -321,7 +341,9 @@ if uploaded_file is not None:
                             
                             for line in ai_output.splitlines():
                                 line_str = line.strip()
-                                if line_str.startswith("NAME:"):
+                                if line_str.startswith("OFFICE:"):
+                                    office_found = line_str.replace("OFFICE:", "").strip()
+                                elif line_str.startswith("NAME:"):
                                     rep_found = line_str.replace("NAME:", "").strip()
                                 elif line_str.startswith("TEL:"):
                                     tel_found = line_str.replace("TEL:", "").strip()
@@ -329,23 +351,19 @@ if uploaded_file is not None:
                         except Exception as e:
                             pass
                     
-                    # 元の DataFrame の該当行に直接記録
+                    # 該当行へリアルタイム書き込み
                     if get_hp: df.at[index, 'HPリンク'] = url_found
+                    if get_office: df.at[index, '所属事務所名'] = office_found
                     if get_rep: df.at[index, '代表者名'] = rep_found
                     if get_tel: df.at[index, 'TEL番号'] = tel_found
                     
-                    # ★【大改修：シームレス更新】
-                    # 1件終わるごとにプレビュー表示枠の中身を最新のDataFrameで完全上書き更新！
-                    # これにより表データがリアルタイムで埋まっていき、コピーもいつでも可能です。
+                    # プレビューテーブルをリアルタイム上書き更新
                     preview_table_holder.dataframe(df.iloc[start_row-1:end_row])
-                    
-                    # 進行状況インジケーター更新
                     progress_bar.progress((loop_idx + 1) / total_sub_rows)
                     time.sleep(4.5)
                 
                 status_text.markdown(f"### 🟢 RANGE ({start_row} - {end_row}) COMPLETE. DATA INTEGRATED.")
                 
-                # ダウンロード用の最終確定リンクを生成
                 final_csv_bytes = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
                 st.download_button(
                     label="⚡ DOWNLOAD FULL/INTEGRATED CSV PACK",
